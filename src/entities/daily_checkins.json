@@ -1,0 +1,129 @@
+
+{
+  "name": "daily_checkins",
+  "options": {
+    "validator": {
+      "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["user_id", "checkin_date", "mental_rating", "emotional_rating", "physical_rating", "social_rating", "spiritual_rating", "created_at"],
+        "properties": {
+          "user_id": {
+            "bsonType": "string",
+            "description": "User ID from authentication system"
+          },
+          "checkin_date": {
+            "bsonType": "string",
+            "title": "datetime",
+            "description": "Date of check-in (YYYY-MM-DD format)"
+          },
+          "mental_rating": {
+            "bsonType": "int",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Mental health rating 1-10"
+          },
+          "emotional_rating": {
+            "bsonType": "int",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Emotional wellbeing rating 1-10"
+          },
+          "physical_rating": {
+            "bsonType": "int",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Physical health rating 1-10"
+          },
+          "social_rating": {
+            "bsonType": "int",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Social connections rating 1-10"
+          },
+          "spiritual_rating": {
+            "bsonType": "int",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Spiritual wellbeing rating 1-10"
+          },
+          "mental_notes": {
+            "bsonType": "string",
+            "description": "Mental health notes with emoji support"
+          },
+          "emotional_notes": {
+            "bsonType": "string",
+            "description": "Emotional notes with emoji support"
+          },
+          "physical_notes": {
+            "bsonType": "string",
+            "description": "Physical health notes with emoji support"
+          },
+          "social_notes": {
+            "bsonType": "string",
+            "description": "Social connections notes with emoji support"
+          },
+          "spiritual_notes": {
+            "bsonType": "string",
+            "description": "Spiritual notes with emoji support"
+          },
+          "mental_emojis": {
+            "bsonType": "array",
+            "items": {"bsonType": "string"},
+            "maxItems": 3,
+            "description": "Up to 3 emojis for mental dimension"
+          },
+          "emotional_emojis": {
+            "bsonType": "array",
+            "items": {"bsonType": "string"},
+            "maxItems": 3,
+            "description": "Up to 3 emojis for emotional dimension"
+          },
+          "physical_emojis": {
+            "bsonType": "array",
+            "items": {"bsonType": "string"},
+            "maxItems": 3,
+            "description": "Up to 3 emojis for physical dimension"
+          },
+          "social_emojis": {
+            "bsonType": "array",
+            "items": {"bsonType": "string"},
+            "maxItems": 3,
+            "description": "Up to 3 emojis for social dimension"
+          },
+          "spiritual_emojis": {
+            "bsonType": "array",
+            "items": {"bsonType": "string"},
+            "maxItems": 3,
+            "description": "Up to 3 emojis for spiritual dimension"
+          },
+          "gratitude": {
+            "bsonType": "array",
+            "items": {"bsonType": "string"},
+            "description": "List of gratitude items"
+          },
+          "is_private": {
+            "bsonType": "bool",
+            "description": "Whether check-in is private or shared in feed"
+          },
+          "mood_emoji": {
+            "bsonType": "string",
+            "description": "Emoji representing overall mood"
+          },
+          "created_at": {
+            "bsonType": "string",
+            "title": "datetime",
+            "description": "Check-in creation timestamp"
+          },
+          "updated_at": {
+            "bsonType": "string",
+            "title": "datetime",
+            "description": "Check-in last update timestamp"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "validationLevel": "moderate",
+    "validationAction": "warn"
+  }
+}

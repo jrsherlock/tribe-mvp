@@ -1,0 +1,70 @@
+
+{
+  "name": "user_profiles",
+  "options": {
+    "validator": {
+      "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["user_id", "created_at", "updated_at"],
+        "properties": {
+          "user_id": {
+            "bsonType": "string",
+            "description": "User ID from authentication system"
+          },
+          "display_name": {
+            "bsonType": "string",
+            "description": "User display name"
+          },
+          "avatar_url": {
+            "bsonType": "string",
+            "description": "User avatar image URL"
+          },
+          "sobriety_date": {
+            "bsonType": "string",
+            "title": "datetime",
+            "description": "Date when user started recovery journey"
+          },
+          "addiction_type": {
+            "bsonType": "string",
+            "enum": ["alcohol", "drugs", "gambling", "smoking", "other"],
+            "description": "Type of addiction being recovered from"
+          },
+          "emergency_contacts": {
+            "bsonType": "array",
+            "items": {
+              "bsonType": "object",
+              "properties": {
+                "name": {"bsonType": "string"},
+                "phone": {"bsonType": "string"},
+                "relationship": {"bsonType": "string"}
+              }
+            },
+            "description": "Emergency contact information"
+          },
+          "bio": {
+            "bsonType": "string",
+            "maxLength": 500,
+            "description": "User biography/story"
+          },
+          "is_public": {
+            "bsonType": "bool",
+            "description": "Whether profile is public in Sangha feed"
+          },
+          "created_at": {
+            "bsonType": "string",
+            "title": "datetime",
+            "description": "Profile creation timestamp"
+          },
+          "updated_at": {
+            "bsonType": "string", 
+            "title": "datetime",
+            "description": "Profile last update timestamp"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "validationLevel": "moderate",
+    "validationAction": "warn"
+  }
+}

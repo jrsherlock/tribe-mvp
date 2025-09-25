@@ -1,0 +1,49 @@
+
+{
+  "name": "feed_interactions",
+  "fields": [
+    {
+      "name": "user_id",
+      "type": "string",
+      "required": true,
+      "title": "User ID"
+    },
+    {
+      "name": "checkin_id", 
+      "type": "string",
+      "required": true,
+      "title": "Check-in ID"
+    },
+    {
+      "name": "interaction_type",
+      "type": "string",
+      "required": true,
+      "title": "Interaction Type",
+      "enum": ["comment", "emoji_reaction"]
+    },
+    {
+      "name": "content",
+      "type": "string",
+      "required": false,
+      "title": "Comment Content"
+    },
+    {
+      "name": "emoji",
+      "type": "string", 
+      "required": false,
+      "title": "Emoji Reaction"
+    },
+    {
+      "name": "created_at",
+      "type": "string",
+      "required": true,
+      "title": "datetime"
+    },
+    {
+      "name": "updated_at",
+      "type": "string",
+      "required": true,
+      "title": "datetime"
+    }
+  ]
+}

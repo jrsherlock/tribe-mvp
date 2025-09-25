@@ -1,0 +1,51 @@
+
+{
+  "name": "album_photos",
+  "options": {
+    "validator": {
+      "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["user_id", "album_id", "photo_url", "created_at"],
+        "properties": {
+          "user_id": {
+            "bsonType": "string",
+            "description": "User ID who owns this photo"
+          },
+          "album_id": {
+            "bsonType": "string",
+            "description": "Album ID this photo belongs to"
+          },
+          "photo_url": {
+            "bsonType": "string",
+            "description": "URL of the uploaded photo"
+          },
+          "caption": {
+            "bsonType": "string",
+            "maxLength": 300,
+            "description": "Photo caption or description"
+          },
+          "is_public": {
+            "bsonType": "bool",
+            "description": "Whether photo is visible to other users"
+          },
+          "file_size": {
+            "bsonType": "int",
+            "description": "File size in bytes"
+          },
+          "file_type": {
+            "bsonType": "string",
+            "description": "MIME type of the file"
+          },
+          "created_at": {
+            "bsonType": "string",
+            "title": "datetime",
+            "description": "Photo upload timestamp"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "validationLevel": "moderate",
+    "validationAction": "warn"
+  }
+}
