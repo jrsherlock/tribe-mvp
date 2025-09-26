@@ -4,7 +4,8 @@ import { motion } from 'framer-motion'
 import {User, Calendar, Award, TrendingUp, MapPin, Globe, Lock} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useSobrietyStreak } from '../hooks/useSobrietyStreak'
-import { lumi } from '../lib/lumi'
+import { supabase } from '../lib/supabase'
+import { useTenant } from '../lib/tenant'
 import PhotoAlbums from './PhotoAlbums'
 import toast from 'react-hot-toast'
 
@@ -28,6 +29,7 @@ interface PublicProfileProps {
 
 const PublicProfile: React.FC<PublicProfileProps> = ({ userId, onClose }) => {
   const { user: currentUser } = useAuth()
+  const { currentTenantId } = useTenant()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'about' | 'albums'>('about')
@@ -42,12 +44,12 @@ const PublicProfile: React.FC<PublicProfileProps> = ({ userId, onClose }) => {
   const fetchProfile = async () => {
     try {
       setLoading(true)
-      const { list: profiles } = await lumi.entities.user_profiles.list({
-        filter: { user_id: userId, is_public: true }
-      })
-
-      if (profiles && profiles.length > 0) {
-        setProfile(profiles[0])
+      let q = supabase.from('user_profiles').select('*').eq('user_id', userId).eq('is_public', true)
+      if (currentTenantId) q = q.eq('tenant_id', currentTenantId); else q = q.is('tenant_id', null)
+      const { data, error } = await q.limit(1)
+      if (error) throw error
+      if (data && data.length > 0) {
+        setProfile(data[0] as any)
       } else {
         toast.error('Profile not found or not public')
         onClose()

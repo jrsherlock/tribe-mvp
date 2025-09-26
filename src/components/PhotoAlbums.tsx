@@ -3,7 +3,10 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {Camera, Plus, Upload, Lock, Globe, Image, X, Edit3, Trash2, Eye} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { lumi } from '../lib/lumi'
+import { useTenant } from '../lib/tenant'
+import { supabase } from '../lib/supabase'
+import { listAlbums as svcListAlbums, listPhotos as svcListPhotos, createAlbum as svcCreateAlbum, updateAlbum as svcUpdateAlbum, deleteAlbum as svcDeleteAlbum } from '../lib/services/albums'
+import { uploadPhoto, deletePhotos } from '../lib/services/storage'
 import toast from 'react-hot-toast'
 
 interface Album {
@@ -37,6 +40,7 @@ interface PhotoAlbumsProps {
 
 const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }) => {
   const { user } = useAuth()
+  const { currentTenantId } = useTenant()
   const [albums, setAlbums] = useState<Album[]>([])
   const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -67,12 +71,9 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
     try {
       setLoading(true)
-      const filter = isOwnProfile 
-        ? { user_id: targetUserId }
-        : { user_id: targetUserId, is_public: true }
-
-      const { list: albumList } = await lumi.entities.photo_albums.list({ filter })
-      setAlbums(albumList || [])
+      const { data: albumList, error } = await svcListAlbums({ user_id: targetUserId, tenant_id: currentTenantId || null, isOwnProfile })
+      if (error) throw error
+      setAlbums((albumList as any) || [])
     } catch (error) {
       console.error('Failed to fetch albums:', error)
       toast.error('Failed to load albums')
@@ -83,12 +84,9 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
   const fetchPhotos = async (albumId: string) => {
     try {
-      const filter = isOwnProfile
-        ? { album_id: albumId }
-        : { album_id: albumId, is_public: true }
-
-      const { list: photoList } = await lumi.entities.album_photos.list({ filter })
-      setPhotos(photoList || [])
+      const { data: photoList, error } = await svcListPhotos({ album_id: albumId, tenant_id: currentTenantId || null, isOwnProfile })
+      if (error) throw error
+      setPhotos((photoList as any) || [])
     } catch (error) {
       console.error('Failed to fetch photos:', error)
       toast.error('Failed to load photos')
@@ -100,6 +98,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
     try {
       const albumData = {
+        tenant_id: currentTenantId || null,
         user_id: user.userId,
         title: newAlbum.title.trim(),
         description: newAlbum.description.trim(),
@@ -110,8 +109,9 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
         updated_at: new Date().toISOString()
       }
 
-      const created = await lumi.entities.photo_albums.create(albumData)
-      setAlbums(prev => [created, ...prev])
+      const { data: created, error } = await svcCreateAlbum(albumData)
+      if (error) throw error
+      setAlbums(prev => [created as any, ...prev])
       setNewAlbum({ title: '', description: '', is_public: false })
       setShowCreateAlbum(false)
       toast.success('Album created successfully! 📸')
@@ -126,45 +126,40 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
     try {
       setUploading(true)
-      const uploadResults = await lumi.tools.file.upload(Array.from(files))
-      
-      const successfulUploads = uploadResults.filter(result => result.fileUrl && !result.uploadError)
-      
-      if (successfulUploads.length === 0) {
-        toast.error('No photos were uploaded successfully')
-        return
-      }
-
-      // Create photo records
-      const photoPromises = successfulUploads.map(async (result, index) => {
-        const file = files[uploadResults.indexOf(result)]
-        return lumi.entities.album_photos.create({
+      // Upload to Supabase Storage and insert records
+      const inserted: any[] = []
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const path = `${currentTenantId || 'solo'}/${user.userId}/${albumId}/${Date.now()}-${i}-${file.name}`
+        const publicUrl = await uploadPhoto(file, path)
+        const { data: photoRow, error } = await supabase.from('album_photos').insert({
+          tenant_id: currentTenantId || null,
           user_id: user.userId,
           album_id: albumId,
-          photo_url: result.fileUrl!,
+          photo_url: publicUrl,
           caption: '',
           is_public: selectedAlbum?.is_public || false,
           file_size: file.size,
           file_type: file.type,
           created_at: new Date().toISOString()
-        })
-      })
-
-      const newPhotos = await Promise.all(photoPromises)
-      setPhotos(prev => [...newPhotos, ...prev])
+        }).select().single()
+        if (error) throw error
+        inserted.push(photoRow)
+      }
+      setPhotos(prev => [...inserted as any[], ...prev])
 
       // Update album photo count and cover photo if needed
-      const updatedCount = (selectedAlbum?.photo_count || 0) + successfulUploads.length
+      const updatedCount = (selectedAlbum?.photo_count || 0) + inserted.length
       const updateData: any = {
         photo_count: updatedCount,
         updated_at: new Date().toISOString()
       }
 
-      if (!selectedAlbum?.cover_photo_url && successfulUploads[0]) {
-        updateData.cover_photo_url = successfulUploads[0].fileUrl
+      if (!selectedAlbum?.cover_photo_url && inserted[0]) {
+        updateData.cover_photo_url = (inserted[0] as any).photo_url
       }
 
-      await lumi.entities.photo_albums.update(albumId, updateData)
+      await svcUpdateAlbum(albumId, updateData)
       
       // Update local state
       setAlbums(prev => prev.map(album => 
@@ -192,23 +187,21 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
     try {
       // Delete all photos in the album
-      const { list: albumPhotos } = await lumi.entities.album_photos.list({
-        filter: { album_id: albumId }
-      })
-
-      if (albumPhotos && albumPhotos.length > 0) {
-        const photoUrls = albumPhotos.map(photo => photo.photo_url)
-        await lumi.tools.file.delete(photoUrls)
-        
-        for (const photo of albumPhotos) {
-          if (photo._id) {
-            await lumi.entities.album_photos.delete(photo._id)
+      const { data: albumPhotos, error } = await svcListPhotos({ album_id: albumId, tenant_id: currentTenantId || null, isOwnProfile: true })
+      if (!error && albumPhotos && (albumPhotos as any[]).length > 0) {
+        const paths = (albumPhotos as any[]).map(p => {
+          try { return new URL(p.photo_url).pathname.split('/object/public/photos/')[1] } catch { return '' }
+        }).filter(Boolean)
+        if (paths.length) await deletePhotos(paths)
+        for (const photo of albumPhotos as any[]) {
+          if (photo.id || photo._id) {
+            await supabase.from('album_photos').delete().eq('id', photo.id || photo._id)
           }
         }
       }
 
       // Delete the album
-      await lumi.entities.photo_albums.delete(albumId)
+      await svcDeleteAlbum(albumId)
       setAlbums(prev => prev.filter(album => album._id !== albumId))
       
       if (selectedAlbum?._id === albumId) {

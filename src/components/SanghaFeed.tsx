@@ -1,10 +1,13 @@
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {Heart, MessageCircleDashed as MessageCircle, Share2, Calendar, Award, User, Users, TrendingUp, Eye, Send, Smile, Brain, HeartHandshake, Activity, Sparkles, CheckCircle} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { lumi } from '../lib/lumi'
+import { useTenant } from '../lib/tenant'
+import { listTenantFeed } from '../lib/services/checkins'
+import { listByCheckinIds, addEmoji as svcAddEmoji, addComment as svcAddComment } from '../lib/services/interactions'
+import { listProfilesByUserIds } from '../lib/services/profiles'
 import toast from 'react-hot-toast'
 import PublicProfile from './PublicProfile'
 
@@ -55,6 +58,7 @@ interface FeedInteraction {
 
 const SanghaFeed: React.FC = () => {
   const { user } = useAuth()
+  const { currentTenantId } = useTenant()
   const location = useLocation()
   const [checkins, setCheckins] = useState<DailyCheckin[]>([])
   const [publicProfiles, setPublicProfiles] = useState<Map<string, UserProfile>>(new Map())
@@ -76,9 +80,20 @@ const SanghaFeed: React.FC = () => {
     { key: 'spiritual', label: 'Spiritual', icon: Sparkles, color: 'text-primary-800' }
   ]
 
+  const fetchInFlight = useRef(false)
+  const lastKey = useRef<string | null>(null)
+
   useEffect(() => {
-    fetchFeed()
-  }, [filterMode])
+    const key = `${currentTenantId ?? 'none'}|${filterMode}`
+    if (fetchInFlight.current) return
+    if (lastKey.current === key && checkins.length) return
+    fetchInFlight.current = true
+    ;(async () => {
+      await fetchFeed()
+      fetchInFlight.current = false
+      lastKey.current = key
+    })()
+  }, [currentTenantId, filterMode])
 
   // Check URL params for filter mode
   useEffect(() => {
@@ -124,46 +139,33 @@ const SanghaFeed: React.FC = () => {
       setLoading(true)
 
       // Determine date filter based on mode
-      let dateFilter = {}
+      let sinceIso: string | undefined
       if (filterMode === 'today') {
         const today = new Date().toISOString().split('T')[0]
-        dateFilter = {
-          created_at: {
-            $gte: `${today}T00:00:00.000Z`,
-            $lt: `${today}T23:59:59.999Z`
-          }
-        }
+        sinceIso = `${today}T00:00:00.000Z`
       } else {
-        // Fetch public daily check-ins from the last 7 days
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-        dateFilter = { created_at: { $gte: sevenDaysAgo } }
+        sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
       }
 
-      const { list: publicCheckins } = await lumi.entities.daily_checkins.list({
-        filter: {
-          is_private: false,
-          ...dateFilter
-        },
-        sort: { created_at: -1 }
-      })
+      // allow tenantless global feed for dev/testing: tenant_id IS NULL
+      // we pass currentTenantId (or null) into the service which handles both cases
+
+
+      const { data: publicCheckins, error } = await listTenantFeed(currentTenantId, sinceIso)
+      if (error) throw error
 
       if (publicCheckins) {
-        setCheckins(publicCheckins)
-        
-        // Fetch interactions for these check-ins
-        const checkinIds = publicCheckins.map(c => c._id).filter(Boolean)
+        const normalized = (publicCheckins as any[]).map(c => ({ _id: c.id ?? c._id, ...c }))
+        setCheckins(normalized as any)
+        const checkinIds = normalized.map(c => c._id).filter(Boolean)
         if (checkinIds.length > 0) {
-          const { list: feedInteractions } = await lumi.entities.feed_interactions.list({
-            filter: { checkin_id: { $in: checkinIds } }
-          })
-          
+          const { data: feedInteractions, error: err2 } = await listByCheckinIds(currentTenantId, checkinIds)
+          if (err2) throw err2
           if (feedInteractions) {
             const interactionMap = new Map()
-            feedInteractions.forEach(interaction => {
+            ;(feedInteractions as any[]).forEach(interaction => {
               const checkinId = interaction.checkin_id
-              if (!interactionMap.has(checkinId)) {
-                interactionMap.set(checkinId, [])
-              }
+              if (!interactionMap.has(checkinId)) interactionMap.set(checkinId, [])
               interactionMap.get(checkinId).push(interaction)
             })
             setInteractions(interactionMap)
@@ -187,13 +189,11 @@ const SanghaFeed: React.FC = () => {
 
       // Fetch profiles for all users who have public check-ins
       // This ensures we get display names even if their profile is private
-      const { list: profiles } = await lumi.entities.user_profiles.list({
-        filter: { user_id: { $in: userIds } }
-      })
-
+      const { data: profiles, error } = await listProfilesByUserIds(userIds)
+      if (error) throw error
       if (profiles) {
         const profileMap = new Map()
-        profiles.forEach(profile => {
+        ;(profiles as any[]).forEach(profile => {
           profileMap.set(profile.user_id, profile)
         })
         setPublicProfiles(profileMap)
@@ -202,13 +202,10 @@ const SanghaFeed: React.FC = () => {
       console.error('Failed to fetch profiles for check-in authors:', error)
       // Fallback: try to fetch all public profiles
       try {
-        const { list: publicProfiles } = await lumi.entities.user_profiles.list({
-          filter: { is_public: true }
-        })
-
-        if (publicProfiles) {
+        const { data: profiles, error } = await listProfilesByUserIds([])
+        if (!error && profiles) {
           const profileMap = new Map()
-          publicProfiles.forEach(profile => {
+          ;(profiles as any[]).forEach(profile => {
             profileMap.set(profile.user_id, profile)
           })
           setPublicProfiles(profileMap)
@@ -242,14 +239,7 @@ const SanghaFeed: React.FC = () => {
     if (!user) return
 
     try {
-      await lumi.entities.feed_interactions.create({
-        user_id: user.userId,
-        checkin_id: checkinId,
-        interaction_type: 'emoji_reaction',
-        emoji: emoji,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
+      await svcAddEmoji({ tenant_id: currentTenantId || null, user_id: user.userId, checkin_id: checkinId, emoji })
 
       // Update local state
       setInteractions(prev => {
@@ -280,14 +270,7 @@ const SanghaFeed: React.FC = () => {
     if (!comment) return
 
     try {
-      await lumi.entities.feed_interactions.create({
-        user_id: user.userId,
-        checkin_id: checkinId,
-        interaction_type: 'comment',
-        content: comment,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
+      await svcAddComment({ tenant_id: currentTenantId || null, user_id: user.userId, checkin_id: checkinId, content: comment })
 
       // Update local state
       setInteractions(prev => {

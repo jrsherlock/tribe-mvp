@@ -1,35 +1,49 @@
 
 import { useState, useEffect } from 'react'
-import { lumi } from '../lib/lumi'
+import { supabase } from '../lib/supabase'
 
 interface User {
   userId: string
-  email: string
-  userName: string
-  userRole: 'ADMIN' | 'USER'
-  createdTime: string
-  accessToken: string
+  email?: string
 }
 
 export function useAuth() {
-  const [isAuthenticated, setIsAuthenticated] = useState(lumi.auth.isAuthenticated)
-  const [user, setUser] = useState<User | null>(lumi.auth.user)
-  const [loading, setLoading] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsubscribe = lumi.auth.onAuthChange(({ isAuthenticated, user }) => {
-      setIsAuthenticated(isAuthenticated)
-      setUser(user)
+    let ignore = false
+    async function load() {
+      const { data } = await supabase.auth.getSession()
+      const s = data.session
+      if (!ignore) {
+        const u = s?.user ? { userId: s.user.id, email: s.user.email ?? undefined } : null
+        setUser(u)
+        setIsAuthenticated(!!u)
+        setLoading(false)
+      }
+    }
+    load()
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      const u = session?.user ? { userId: session.user.id, email: session.user.email ?? undefined } : null
+      setUser(u)
+      setIsAuthenticated(!!u)
       setLoading(false)
     })
-
-    return () => unsubscribe()
+    return () => { ignore = true; sub.subscription.unsubscribe() }
   }, [])
 
-  const signIn = async () => {
+  const signIn = async (email?: string) => {
     try {
       setLoading(true)
-      await lumi.auth.signIn()
+      const target = email ?? window.prompt('Enter your email for a magic link') ?? ''
+      if (!target) throw new Error('Email is required')
+      const { error } = await supabase.auth.signInWithOtp({ email: target, emailRedirectTo: window.location.origin })
+      if (error) throw error
+      // Keep loading=false so the Welcome screen remains responsive
+      setLoading(false)
+      alert('Check your email for the sign-in link.')
     } catch (error) {
       console.error('Sign in failed:', error)
       setLoading(false)
@@ -40,7 +54,9 @@ export function useAuth() {
   const signOut = async () => {
     try {
       setLoading(true)
-      await lumi.auth.signOut()
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      setLoading(false)
     } catch (error) {
       console.error('Sign out failed:', error)
       setLoading(false)
@@ -53,6 +69,6 @@ export function useAuth() {
     isAuthenticated,
     loading,
     signIn,
-    signOut
+    signOut,
   }
 }

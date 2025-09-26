@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
-import { lumi } from '../lib/lumi';
+import { useTenant } from '../lib/tenant';
 import { toast } from 'react-hot-toast';
+import { listByCheckinIds, addEmoji as svcAddEmoji, addComment as svcAddComment } from '../lib/services/interactions';
+import { listProfilesByUserIds } from '../lib/services/profiles';
 
 export interface FeedInteraction {
   _id?: string;
@@ -24,6 +26,7 @@ export interface UserProfile {
 
 export const useCheckinInteractions = (checkinId: string) => {
   const { user } = useAuth();
+  const { currentTenantId } = useTenant();
   const [interactions, setInteractions] = useState<FeedInteraction[]>([]);
   const [profiles, setProfiles] = useState<Map<string, UserProfile>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -39,24 +42,18 @@ export const useCheckinInteractions = (checkinId: string) => {
 
     try {
       setLoading(true);
-      const { list: feedInteractions } = await lumi.entities.feed_interactions.list({
-        filter: { checkin_id: checkinId }
-      });
-
+      if (!currentTenantId) { setInteractions([]); return }
+      const { data: feedInteractions, error } = await listByCheckinIds(currentTenantId, [checkinId]);
+      if (error) throw error;
       if (feedInteractions) {
-        setInteractions(feedInteractions);
-
-        // Get unique user IDs from interactions
-        const userIds = [...new Set(feedInteractions.map(i => i.user_id))];
-        
+        setInteractions(feedInteractions as any);
+        const userIds = [...new Set((feedInteractions as any[]).map(i => i.user_id))];
         if (userIds.length > 0) {
-          const { list: userProfiles } = await lumi.entities.user_profiles.list({
-            filter: { user_id: { $in: userIds } }
-          });
-
+          const { data: userProfiles, error: err2 } = await listProfilesByUserIds(userIds);
+          if (err2) throw err2;
           if (userProfiles) {
             const profileMap = new Map();
-            userProfiles.forEach(profile => {
+            (userProfiles as any[]).forEach(profile => {
               profileMap.set(profile.user_id, profile);
             });
             setProfiles(profileMap);
@@ -90,7 +87,7 @@ export const useCheckinInteractions = (checkinId: string) => {
         updated_at: new Date().toISOString()
       };
 
-      await lumi.entities.feed_interactions.create(newInteraction);
+      await svcAddEmoji({ tenant_id: currentTenantId || null, user_id: user.userId, checkin_id: checkinId, emoji });
 
       // Update local state
       setInteractions(prev => [...prev, newInteraction]);
@@ -118,7 +115,7 @@ export const useCheckinInteractions = (checkinId: string) => {
         updated_at: new Date().toISOString()
       };
 
-      await lumi.entities.feed_interactions.create(newInteraction);
+      await svcAddComment({ tenant_id: currentTenantId || null, user_id: user.userId, checkin_id: checkinId, content: newInteraction.content! });
 
       // Update local state
       setInteractions(prev => [...prev, newInteraction]);

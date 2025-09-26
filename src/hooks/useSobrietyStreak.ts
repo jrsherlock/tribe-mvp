@@ -1,8 +1,9 @@
 
 import { useState, useEffect } from 'react'
 import { differenceInDays, differenceInMonths, differenceInYears } from 'date-fns'
-import { lumi } from '../lib/lumi'
 import { useAuth } from './useAuth'
+import { useTenant } from '../lib/tenant'
+import { getOwnProfile } from '../lib/services/profiles'
 
 interface SobrietyStats {
   totalDays: number
@@ -14,6 +15,7 @@ interface SobrietyStats {
 
 export function useSobrietyStreak() {
   const { user } = useAuth()
+  const { currentTenantId } = useTenant()
   const [streak, setStreak] = useState<number>(0)
   const [stats, setStats] = useState<SobrietyStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -31,14 +33,10 @@ export function useSobrietyStreak() {
         setError(null)
 
         // Fetch user profile to get sobriety date
-        const { list: profiles } = await lumi.entities.user_profiles.list({
-          filter: { user_id: user.userId },
-          limit: 1
-        })
-
-        if (profiles && profiles.length > 0) {
-          const profile = profiles[0]
-          const sobrietyDate = profile.sobriety_date
+        const { data: profile, error } = await getOwnProfile(user.userId, currentTenantId || null)
+        if (error && error.code !== 'PGRST116') throw error // not found ok
+        if (profile) {
+          const sobrietyDate = (profile as any).sobriety_date
 
           if (sobrietyDate) {
             const startDate = new Date(sobrietyDate)

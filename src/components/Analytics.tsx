@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { lumi } from '../lib/lumi'
+import { supabase } from '../lib/supabase'
+import { useTenant } from '../lib/tenant'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LineChart,
@@ -105,6 +106,7 @@ const DIMENSION_ICONS = {
 
 const Analytics: React.FC = () => {
   const { user, isAuthenticated } = useAuth()
+  const { currentTenantId } = useTenant()
   const [checkins, setCheckins] = useState<CheckinData[]>([])
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(false)
@@ -140,16 +142,36 @@ const Analytics: React.FC = () => {
     setError(null)
     
     try {
-      console.log('Loading check-ins for current user:', user.userId)
-      
-      // Since SDK limitations prevent complex queries, we'll need to work with what we have
-      // The entities.daily_checkins should work for basic operations
-      // For now, we'll show a message about limitations
-      
-      setError('Analytics temporarily unavailable due to SDK limitations. Data generator can create records, but reading requires different approach.')
-      setCheckins([])
-      setDataSource('none')
-      
+      setError(null)
+      // Fetch current user's check-ins (optionally scoped to tenant)
+      let q = supabase
+        .from('daily_checkins')
+        .select('*')
+        .eq('user_id', user.userId)
+        .order('checkin_date', { ascending: true })
+      if (currentTenantId) q = q.eq('tenant_id', currentTenantId)
+      const { data, error } = await q
+      if (error) throw error
+      const mapped = (data || []).map((d: any) => ({
+        _id: d.id,
+        checkin_date: d.checkin_date,
+        mental_rating: d.mental_rating,
+        emotional_rating: d.emotional_rating,
+        physical_rating: d.physical_rating,
+        social_rating: d.social_rating,
+        spiritual_rating: d.spiritual_rating,
+        mental_notes: d.mental_notes || undefined,
+        emotional_notes: d.emotional_notes || undefined,
+        physical_notes: d.physical_notes || undefined,
+        social_notes: d.social_notes || undefined,
+        spiritual_notes: d.spiritual_notes || undefined,
+        gratitude: d.gratitude || undefined,
+        mood_emoji: d.mood_emoji,
+        created_at: d.created_at,
+        user_id: d.user_id,
+      }))
+      setCheckins(mapped)
+      setDataSource('database')
     } catch (error) {
       console.error('Error loading check-ins:', error)
       setError(`Failed to load check-ins: ${error instanceof Error ? error.message : 'Unknown error'}`)

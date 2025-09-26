@@ -1,13 +1,17 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { lumi } from '../lib/lumi';
+import { useTenant } from '../lib/tenant';
+import { getTodayForUser, upsert as upsertCheckin } from '../lib/services/checkins';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Save, Lock, Globe, Plus, X, Heart, Smile, Brain, HeartHandshake, Activity, Users, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import toast from 'react-hot-toast';
 import { ToastContent, getToastStyles, therapeuticToasts } from './ui/Toast';
+import { supabase } from '../lib/supabase';
+import { listGroups, listMembershipsByUser, type Group } from '../lib/services/groups';
+
 
 interface CheckinData {
   mental_rating: number;
@@ -32,6 +36,7 @@ interface CheckinData {
 
 const DailyCheckin: React.FC = () => {
   const { user } = useAuth();
+  const { currentTenantId } = useTenant();
   const navigate = useNavigate();
   const [checkinData, setCheckinData] = useState<CheckinData>({
     mental_rating: 5,
@@ -53,6 +58,9 @@ const DailyCheckin: React.FC = () => {
     is_private: false,
     mood_emoji: '😊'
   });
+
+  const [availableGroups, setAvailableGroups] = useState<Group[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
   const [existingCheckin, setExistingCheckin] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -122,13 +130,8 @@ const DailyCheckin: React.FC = () => {
       if (!user) return;
 
       try {
-        const today = new Date().toISOString().split('T')[0];
-        const { list: checkins } = await lumi.entities.daily_checkins.list({
-          filter: {
-            user_id: user.userId,
-            checkin_date: { $regex: `^${today}` }
-          }
-        });
+        const { data: rows } = await getTodayForUser(user.userId, currentTenantId || null)
+        const checkins = rows ? rows : [] as any[];
 
         if (checkins && checkins.length > 0) {
           const existing = checkins[0];
@@ -161,6 +164,35 @@ const DailyCheckin: React.FC = () => {
 
     fetchTodayCheckin();
   }, [user]);
+
+  useEffect(() => {
+    let mounted = true
+    async function load() {
+      if (!user || !currentTenantId) { setAvailableGroups([]); setSelectedGroupIds([]); return }
+      try {
+        const [{ data: groupRows }, { data: memRows }] = await Promise.all([
+          listGroups(currentTenantId),
+          listMembershipsByUser(user.userId)
+        ])
+        if (!mounted) return
+        const mySet = new Set((memRows ?? []).map((r: any) => r.group_id))
+        const mine = (groupRows ?? []).filter((g: any) => mySet.has(g.id))
+        setAvailableGroups(mine as any)
+        if (existingCheckin?.id) {
+          const { data: shares } = await supabase
+            .from('checkin_group_shares')
+            .select('group_id')
+            .eq('checkin_id', existingCheckin.id)
+          if (mounted && shares) setSelectedGroupIds(shares.map((s: any) => s.group_id))
+        }
+      } catch (e) {
+        console.error('Failed to load groups', e)
+      }
+    }
+    load()
+    return () => { mounted = false }
+  }, [user, currentTenantId, existingCheckin])
+
 
   const handleRatingChange = (category: string, value: number) => {
     setCheckinData((prev) => ({
@@ -231,9 +263,12 @@ const DailyCheckin: React.FC = () => {
       setLoading(true);
       const today = new Date().toISOString();
 
+      const id = existingCheckin?.id || existingCheckin?._id
       const checkinPayload = {
+        id,
+        tenant_id: currentTenantId || null,
         user_id: user.userId,
-        checkin_date: today,
+        checkin_date: today.split('T')[0],
         mental_rating: checkinData.mental_rating,
         emotional_rating: checkinData.emotional_rating,
         physical_rating: checkinData.physical_rating,
@@ -253,13 +288,21 @@ const DailyCheckin: React.FC = () => {
         is_private: checkinData.is_private,
         mood_emoji: checkinData.mood_emoji,
         created_at: today,
-        updated_at: today
-      };
+        updated_at: today,
+      } as any;
 
-      if (existingCheckin) {
-        await lumi.entities.daily_checkins.update(existingCheckin._id, checkinPayload);
-      } else {
-        await lumi.entities.daily_checkins.create(checkinPayload);
+      const { data: saved, error: saveErr } = await upsertCheckin(checkinPayload);
+      if (saveErr) throw saveErr
+
+      // If sharing to groups: reset shares and insert selected
+      if (!checkinData.is_private && saved?.id && currentTenantId) {
+        // remove previous shares (if any)
+        await supabase.from('checkin_group_shares').delete().eq('checkin_id', saved.id)
+        if (selectedGroupIds.length > 0) {
+          const rows = selectedGroupIds.map(gid => ({ checkin_id: saved.id as string, group_id: gid }))
+          const { error: shareErr } = await supabase.from('checkin_group_shares').insert(rows)
+          if (shareErr) throw shareErr
+        }
       }
 
       // Dismiss loading toast
@@ -291,7 +334,7 @@ const DailyCheckin: React.FC = () => {
           state: {
             message: checkinData.is_private
               ? 'Check-in saved privately'
-              : 'Your check-in has been shared with the community!'
+              : 'Your check-in has been shared with your groups!'
           }
         });
       }, 1500); // Small delay to let user see the success message
@@ -397,7 +440,7 @@ const DailyCheckin: React.FC = () => {
                   <p className="text-sm text-sand-600">{category.description}</p>
                 </div>
               </div>
-              
+
               {/* Emoji Picker Button */}
               <div className="relative">
                 <button
@@ -407,7 +450,7 @@ const DailyCheckin: React.FC = () => {
 
                   <Smile className="w-5 h-5 text-sand-600" />
                 </button>
-                
+
                 {/* Emoji Picker */}
                 <AnimatePresence>
                   {activeEmojiPicker === category.key &&
@@ -469,7 +512,7 @@ const DailyCheckin: React.FC = () => {
                   <span className="text-sm text-primary-600">/10</span>
                 </div>
               </div>
-              
+
               <input
                 type="range"
                 min="1"
@@ -478,7 +521,7 @@ const DailyCheckin: React.FC = () => {
                 onChange={(e) => handleRatingChange(category.key, parseInt(e.target.value))}
                 className={`w-full h-2 rounded-lg appearance-none cursor-pointer bg-gradient-to-r ${category.color}`} />
 
-              
+
               <div className="flex justify-between text-xs text-primary-500">
                 <span>Low</span>
                 <span>High</span>
@@ -561,17 +604,17 @@ const DailyCheckin: React.FC = () => {
             }
             <div>
               <h3 className="font-medium text-primary-800">
-                {checkinData.is_private ? 'Private Check-in' : 'Share with Sangha'}
+                {checkinData.is_private ? 'Private Check-in' : 'Share with groups'}
               </h3>
               <p className="text-sm text-primary-600">
                 {checkinData.is_private ?
                 'Only you can see this check-in' :
-                'Your community can see and support you'
+                'Members of the selected groups can see and support you'
                 }
               </p>
             </div>
           </div>
-          
+
           <button
             onClick={() => setCheckinData((prev) => ({ ...prev, is_private: !prev.is_private }))}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -585,6 +628,37 @@ const DailyCheckin: React.FC = () => {
 
           </button>
         </div>
+
+        {!checkinData.is_private && currentTenantId && availableGroups.length > 0 && (
+          <div className="mt-4">
+            <div className="text-sm text-primary-700 mb-2">Share to groups</div>
+            <div className="flex flex-wrap gap-2">
+              {availableGroups.map((g) => (
+                <label key={g.id} className="flex items-center gap-2 border rounded-lg px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedGroupIds.includes(g.id)}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setSelectedGroupIds((prev) =>
+                        checked ? [...prev, g.id] : prev.filter((id) => id !== g.id)
+                      )
+                    }}
+                  />
+                  <span>{g.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!checkinData.is_private && currentTenantId && availableGroups.length === 0 && (
+          <div className="mt-4 p-3 border rounded-lg bg-sand-50 text-sand-800">
+            <div className="text-sm">No groups yet. Please ask your facility admin to add you to a group.</div>
+          </div>
+        )}
+
+
       </motion.div>
 
       {/* Submit Button */}

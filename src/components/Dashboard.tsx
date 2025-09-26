@@ -3,11 +3,22 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useSobrietyStreak } from '../hooks/useSobrietyStreak';
-import { lumi } from '../lib/lumi';
+import { useTenant } from '../lib/tenant';
+import { supabase } from '../lib/supabase';
+import { listProfilesByUserIds } from '../lib/services/profiles';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, TrendingUp, Users, CheckCircle, Heart, Award, Target, Sparkles, Star, Zap } from 'lucide-react';
+import { isSuperuser } from '../lib/services/tenants';
+import { listMembershipsByUser } from '../lib/services/groups';
+import { Calendar, TrendingUp, Users, CheckCircle, Heart, Award, Sparkles, Star, Zap } from 'lucide-react';
 import TribeCheckinCard from './TribeCheckinCard';
 import InteractiveCheckinModal from './InteractiveCheckinModal';
+import type { Checkin } from '../lib/services/checkins';
+import type { GroupMembership as GroupMembershipRow } from '../lib/services/groups';
+import type { Membership as TenantMembership } from '../lib/tenant';
+
+interface UserProfile { user_id: string; display_name?: string | null; avatar_url?: string | null }
+interface CheckinGroupShare { checkin_id: string; group_id: string }
+
 
 interface RecentCheckin {
   _id: string;
@@ -39,12 +50,15 @@ interface TribeCheckin {
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { streak, stats, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
+  const { currentTenantId, memberships } = useTenant();
+  const { streak, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
   const [recentCheckins, setRecentCheckins] = useState<RecentCheckin[]>([]);
   const [todayCheckin, setTodayCheckin] = useState<RecentCheckin | null>(null);
   const [loading, setLoading] = useState(true);
   const [tribeCheckins, setTribeCheckins] = useState<TribeCheckin[]>([]);
   const [selectedCheckin, setSelectedCheckin] = useState<TribeCheckin | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [highestAdmin, setHighestAdmin] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -54,72 +68,92 @@ const Dashboard: React.FC = () => {
         setLoading(true);
 
         // Fetch recent check-ins
-        const { list: checkins } = await lumi.entities.daily_checkins.list({
-          filter: { user_id: user.userId },
-          sort: { created_at: -1 },
-          limit: 7
-        });
+        let q1 = supabase.from('daily_checkins').select('*').eq('user_id', user.userId)
+        if (currentTenantId) q1 = q1.eq('tenant_id', currentTenantId); else q1 = q1.is('tenant_id', null)
+        const { data: checkins, error: e1 } = await q1.order('created_at', { ascending: false }).limit(7)
+        if (e1) throw e1
 
         if (checkins && checkins.length > 0) {
-          setRecentCheckins(checkins);
+          setRecentCheckins((checkins ?? []) as unknown as RecentCheckin[]);
 
           // Check if today's check-in exists
           const today = new Date().toISOString().split('T')[0];
-          const todayCheck = checkins.find((checkin) =>
-          checkin.created_at.split('T')[0] === today
-          );
-          setTodayCheckin(todayCheck || null);
+          const todayCheck = ((checkins ?? []) as unknown as RecentCheckin[])
+            .find((c) => (c.created_at as string).split('T')[0] === today) || null;
+          setTodayCheckin(todayCheck);
         }
 
         // Fetch tribe check-ins for today
-        const today = new Date().toISOString().split('T')[0];
-        const { list: tribeCheckinsList } = await lumi.entities.daily_checkins.list({
-          filter: {
-            created_at: { $gte: `${today}T00:00:00.000Z`, $lt: `${today}T23:59:59.999Z` },
-            is_private: false,
-            user_id: { $ne: user.userId } // Exclude current user's check-ins
-          },
-          sort: { created_at: -1 },
-          limit: 20
-        });
+        if (currentTenantId) {
+          const today = new Date().toISOString().split('T')[0];
+          const { data: mems } = await listMembershipsByUser(user.userId)
+          const groupMems = (mems ?? []) as GroupMembershipRow[]
+          const myGroupIds: string[] = groupMems.map(m => m.group_id)
 
-        if (tribeCheckinsList && tribeCheckinsList.length > 0) {
-          // Get unique user IDs from check-ins
-          const userIds = [...new Set(tribeCheckinsList.map(checkin => checkin.user_id))];
+          let tribeCheckinsList: Checkin[] = []
+          if (myGroupIds.length > 0) {
+            const { data: shareRows, error: eShares } = await supabase
+              .from('checkin_group_shares')
+              .select('checkin_id')
+              .in('group_id', myGroupIds)
+            if (eShares) throw eShares
 
-          // Fetch user profiles for display names and avatars
-          const { list: profiles } = await lumi.entities.user_profiles.list({
-            filter: { user_id: { $in: userIds } }
-          });
-
-          // Create a map of user profiles
-          const profileMap = new Map();
-          if (profiles) {
-            profiles.forEach(profile => {
-              profileMap.set(profile.user_id, profile);
-            });
+            const checkinIds = [...new Set(((shareRows ?? []) as CheckinGroupShare[]).map(r => r.checkin_id))]
+            if (checkinIds.length > 0) {
+              const { data: rows, error: e2 } = await supabase
+                .from('daily_checkins')
+                .select('*')
+                .eq('tenant_id', currentTenantId)
+                .eq('is_private', false)
+                .neq('user_id', user.userId)
+                .in('id', checkinIds)
+                .gte('created_at', `${today}T00:00:00.000Z`).lt('created_at', `${today}T23:59:59.999Z`)
+                .order('created_at', { ascending: false })
+                .limit(20)
+              if (e2) throw e2
+              tribeCheckinsList = (rows ?? []) as Checkin[]
+            }
           }
 
-          // Combine check-in data with user profile data
-          const enrichedTribeCheckins: TribeCheckin[] = tribeCheckinsList.map(checkin => {
-            const profile = profileMap.get(checkin.user_id);
-            return {
-              ...checkin,
-              user_name: profile?.display_name || 'Anonymous',
-              user_avatar_url: profile?.avatar_url || '',
-              grateful_for: checkin.gratitude || [],
-              mental_notes: checkin.mental_notes || '',
-              spiritual_notes: checkin.spiritual_notes || ''
-            };
-          });
+          if (tribeCheckinsList && tribeCheckinsList.length > 0) {
+            const userIds = [...new Set(tribeCheckinsList.map(checkin => checkin.user_id))];
+            const { data: profiles } = await listProfilesByUserIds(userIds)
+            const profileMap = new Map<string, UserProfile>();
+            if (profiles) {
+              (profiles as UserProfile[]).forEach((profile) => {
+                profileMap.set(profile.user_id, profile);
+              });
+            }
 
-          setTribeCheckins(enrichedTribeCheckins);
+            const enrichedTribeCheckins: TribeCheckin[] = (tribeCheckinsList as Checkin[]).map((checkin: Checkin) => {
+              const profile = profileMap.get(checkin.user_id);
+              const id = checkin.id as string | undefined;
+              return {
+                _id: id ?? `${checkin.user_id}-${checkin.created_at}`,
+                user_id: checkin.user_id,
+                user_name: profile?.display_name || 'Anonymous',
+                user_avatar_url: profile?.avatar_url || '',
+                mental_rating: checkin.mental_rating,
+                emotional_rating: checkin.emotional_rating,
+                physical_rating: checkin.physical_rating,
+                social_rating: checkin.social_rating,
+                spiritual_rating: checkin.spiritual_rating,
+                mood_emoji: checkin.mood_emoji,
+                grateful_for: checkin.gratitude || [],
+                mental_notes: checkin.mental_notes || '',
+                spiritual_notes: checkin.spiritual_notes || '',
+                created_at: checkin.created_at as string
+              } as TribeCheckin;
+            });
+
+            setTribeCheckins(enrichedTribeCheckins);
+          }
         } else {
-          // For testing purposes, add some mock data
+          // For testing purposes, add some mock data with proper UUIDs
           const mockTribeCheckins: TribeCheckin[] = [
             {
-              _id: 'mock1',
-              user_id: 'user1',
+              _id: '550e8400-e29b-41d4-a716-446655440001',
+              user_id: '550e8400-e29b-41d4-a716-446655440011',
               user_name: 'Sarah M.',
               user_avatar_url: '',
               mental_rating: 8,
@@ -134,8 +168,8 @@ const Dashboard: React.FC = () => {
               created_at: new Date().toISOString()
             },
             {
-              _id: 'mock2',
-              user_id: 'user2',
+              _id: '550e8400-e29b-41d4-a716-446655440002',
+              user_id: '550e8400-e29b-41d4-a716-446655440012',
               user_name: 'Alex R.',
               user_avatar_url: '',
               mental_rating: 6,
@@ -150,8 +184,8 @@ const Dashboard: React.FC = () => {
               created_at: new Date().toISOString()
             },
             {
-              _id: 'mock3',
-              user_id: 'user3',
+              _id: '550e8400-e29b-41d4-a716-446655440003',
+              user_id: '550e8400-e29b-41d4-a716-446655440013',
               user_name: 'Jordan K.',
               user_avatar_url: '',
               mental_rating: 9,
@@ -176,7 +210,7 @@ const Dashboard: React.FC = () => {
     };
 
     fetchDashboardData();
-  }, [user]);
+  }, [user, currentTenantId]);
 
   const getAverageRating = (checkin: RecentCheckin) => {
     return Math.round((
@@ -194,13 +228,45 @@ const Dashboard: React.FC = () => {
     return Math.round(total / recentCheckins.length);
   };
 
+
+  // Determine admin access and highest role
+  useEffect(() => {
+    let cancelled = false
+    async function checkAuthz() {
+      if (!user) { setShowAdmin(false); setHighestAdmin(null); return }
+      const hasFacilityAdmin = ((memberships ?? []) as TenantMembership[]).some((m) => m.role === 'OWNER' || m.role === 'ADMIN')
+      try {
+        const [{ data: su }, { data: gm }] = await Promise.all([
+          isSuperuser(user.userId),
+          listMembershipsByUser(user.userId)
+        ])
+        if (cancelled) return
+        const isSu = !!su
+        const groupRows = (gm ?? []) as GroupMembershipRow[]
+        const isGroupAdmin = groupRows.some((r) => r.role === 'ADMIN')
+        setShowAdmin(isSu || hasFacilityAdmin || isGroupAdmin)
+        if (isSu) setHighestAdmin('SuperUser')
+        else if (hasFacilityAdmin) setHighestAdmin('Facility Admin')
+        else if (isGroupAdmin) setHighestAdmin('Group Admin')
+        else setHighestAdmin(null)
+      } catch {
+        if (!cancelled) { setShowAdmin(false); setHighestAdmin(null) }
+      }
+    }
+    checkAuthz()
+    return () => { cancelled = true }
+  }, [user, memberships])
+
   if (loading || streakLoading) {
+
     return (
       <div className="flex items-center justify-center min-h-screen bg-white">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary-200 border-t-primary-600 mx-auto mb-4"></div>
           <p className="text-secondary-700 font-medium">Loading your journey...</p>
         </div>
+
+
       </div>);
 
   }
@@ -218,18 +284,49 @@ const Dashboard: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-center space-y-4">
 
-          <h1 className="font-bold text-secondary-800 text-3xl">
-            Welcome back, {user?.userName}! ✨
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-bold text-secondary-800 text-3xl">
+              Welcome back, {user?.email ?? 'Friend'}! ✨
+            </h1>
+            {highestAdmin && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs border bg-secondary-50 text-secondary-800">
+                {highestAdmin}
+              </span>
+            )}
+          </div>
           <p className="text-secondary-600 text-xl font-medium">
             Your recovery journey shines brighter every day
           </p>
         </motion.div>
 
+        {/* Tenant/Groups CTA */}
+        {(!currentTenantId) ? (
+          <div className="max-w-3xl mx-auto mb-6 p-4 border rounded-xl bg-sage-50 text-sand-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold">Enable Facility Features</div>
+                <div className="text-sm text-sand-700">Create a facility to unlock groups and community sharing.</div>
+              </div>
+              <Link to="/tenant/setup" className="px-4 py-2 bg-sage-600 text-white rounded-lg">Create Facility</Link>
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-3xl mx-auto mb-6 p-3 border rounded-xl bg-secondary-50 text-sand-800 flex items-center justify-between">
+            <div className="text-sm">Manage your facility groups</div>
+            <Link to="/groups" className="px-3 py-2 bg-secondary-700 text-white rounded-lg text-sm">Open Groups</Link>
+          </div>
+        )}
+        {showAdmin && (
+          <div className="max-w-3xl mx-auto -mt-4 mb-4 text-right">
+            <Link to="/admin" className="inline-block px-3 py-2 border rounded-lg text-sand-800 hover:bg-secondary-50">Open Admin</Link>
+          </div>
+        )}
+
         {/* Quick Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Sobriety Streak */}
           <motion.div
+
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
@@ -367,7 +464,7 @@ const Dashboard: React.FC = () => {
                 </p>
               </div>
             </div>
-            
+
             {todayCheckin &&
             <div className="mb-6 p-4 bg-success-50 rounded-2xl border border-success-200">
                 <div className="flex items-center justify-between">
@@ -382,7 +479,7 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
             }
-            
+
             <Link
               to="/checkin"
               className="w-full bg-success-600 text-white font-semibold px-6 py-3 rounded-xl hover:bg-success-700 hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5 flex items-center justify-center space-x-2">
@@ -408,7 +505,7 @@ const Dashboard: React.FC = () => {
                 <p className="text-secondary-600">Connect and support each other</p>
               </div>
             </div>
-            
+
             <div className="mb-6 space-y-3">
               <div className="flex items-center space-x-3">
                 <div className="w-3 h-3 bg-accent-500 rounded-full animate-gentle-pulse"></div>
@@ -423,7 +520,7 @@ const Dashboard: React.FC = () => {
                 <span className="text-secondary-700 font-medium">Build connections</span>
               </div>
             </div>
-            
+
             <Link
               to="/sangha"
               className="w-full bg-accent-600 text-white font-semibold px-6 py-3 rounded-xl hover:bg-accent-700 hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5 flex items-center justify-center space-x-2">
@@ -447,9 +544,9 @@ const Dashboard: React.FC = () => {
               <h3 className="text-2xl font-bold text-secondary-800">Recent Check-ins</h3>
               <Zap className="w-5 h-5 text-warning-500 animate-bounce-gentle" />
             </div>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
-              {recentCheckins.slice(0, 7).map((checkin, index) => {
+              {recentCheckins.slice(0, 7).map((checkin) => {
               const rating = getAverageRating(checkin);
               const colorClass = rating >= 8 ? 'bg-success-600 hover:bg-success-700' :
               rating >= 6 ? 'bg-warning-600 hover:bg-warning-700' : 'bg-accent-600 hover:bg-accent-700';

@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
+import AdminDashboard from './components/admin/AdminDashboard';
 import Dashboard from './components/Dashboard';
 import UserProfile from './components/UserProfile';
 import PublicProfile from './components/PublicProfile';
@@ -11,6 +12,8 @@ import PhotoAlbums from './components/PhotoAlbums';
 import Analytics from './components/Analytics';
 import Welcome from './components/Welcome';
 import UXTestComponent from './components/UXTestComponent';
+import TenantSetup from './components/TenantSetup';
+import GroupsManager from './components/GroupsManager';
 import { useAuth } from './hooks/useAuth';
 
 function App() {
@@ -42,6 +45,9 @@ function App() {
           <Route path="/sangha" element={<SanghaFeed />} />
           <Route path="/albums" element={<PhotoAlbums />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/tenant/setup" element={<TenantSetup />} />
+          <Route path="/groups" element={<GroupsManager />} />
+          <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/test-ux" element={<UXTestComponent />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

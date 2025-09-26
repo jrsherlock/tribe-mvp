@@ -1,15 +1,17 @@
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useSobrietyStreak } from '../hooks/useSobrietyStreak'
-import { lumi } from '../lib/lumi'
+import { getOwnProfile, upsertOwnProfile } from '../lib/services/profiles'
+import { uploadPhoto } from '../lib/services/storage'
+import { useTenant } from '../lib/tenant'
 import { motion } from 'framer-motion'
 import {User, Calendar, Award, TrendingUp, Edit3, Save, X, Camera, Mail, MapPin, Phone, Globe, Lock, Upload} from 'lucide-react'
 import toast from 'react-hot-toast'
 import PhotoAlbums from './PhotoAlbums'
 
 interface UserProfile {
-  _id?: string
+  id?: string
   user_id: string
   display_name: string
   bio: string
@@ -25,6 +27,7 @@ interface UserProfile {
 
 const UserProfile: React.FC = () => {
   const { user } = useAuth()
+  const { currentTenantId, loading: tenantLoading } = useTenant()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -47,18 +50,26 @@ const UserProfile: React.FC = () => {
   const streak = sobrietyStats?.totalDays || 0
   const streakLoading = loading // Use the profile loading state
 
+  const fetchInFlight = useRef(false)
+  const lastFetchKey = useRef<string | null>(null)
+
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user) return
+      const uid = user?.userId
+      const tid = currentTenantId || null
+      const key = `${uid ?? 'anon'}|${tid ?? 'null'}`
+      if (!uid || tenantLoading) return
+      if (fetchInFlight.current) return
+      if (lastFetchKey.current === key && profile) return
+      fetchInFlight.current = true
+      lastFetchKey.current = key
 
       try {
         setLoading(true)
-        const { list: profiles } = await lumi.entities.user_profiles.list({
-          filter: { user_id: user.userId }
-        })
-
-        if (profiles && profiles.length > 0) {
-          const userProfile = profiles[0]
+        const { data, error } = await getOwnProfile(user.userId, currentTenantId || null)
+        if (error) console.warn('getOwnProfile error', error)
+        if (data) {
+          const userProfile = data as any
           setProfile(userProfile)
           setEditForm({
             display_name: userProfile.display_name || '',
@@ -71,9 +82,9 @@ const UserProfile: React.FC = () => {
             is_public: userProfile.is_public || false
           })
         } else {
-          // Create default profile
           const defaultProfile = {
             user_id: user.userId,
+            tenant_id: currentTenantId || null,
             display_name: user.userName || 'Anonymous',
             bio: '',
             avatar_url: '',
@@ -82,21 +93,20 @@ const UserProfile: React.FC = () => {
             email: '',
             phone: '',
             is_public: false,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
           }
-          
-          const created = await lumi.entities.user_profiles.create(defaultProfile)
-          setProfile(created)
+          const { data: created, error: createErr } = await upsertOwnProfile(defaultProfile)
+          if (createErr) throw createErr
+          const newProf = created as any
+          setProfile(newProf)
           setEditForm({
-            display_name: created.display_name,
-            bio: created.bio,
-            avatar_url: created.avatar_url,
-            sobriety_date: created.sobriety_date.split('T')[0],
-            location: created.location,
-            email: created.email,
-            phone: created.phone,
-            is_public: created.is_public
+            display_name: newProf.display_name,
+            bio: newProf.bio,
+            avatar_url: newProf.avatar_url,
+            sobriety_date: (newProf.sobriety_date || '').split('T')[0],
+            location: newProf.location,
+            email: newProf.email,
+            phone: newProf.phone,
+            is_public: newProf.is_public
           })
         }
       } catch (error) {
@@ -104,40 +114,32 @@ const UserProfile: React.FC = () => {
         toast.error('Failed to load profile')
       } finally {
         setLoading(false)
+        fetchInFlight.current = false
       }
     }
 
     fetchProfile()
-  }, [user])
+  }, [user?.userId, currentTenantId, tenantLoading])
 
   const handleAvatarUpload = async (file: File) => {
     if (!user || !profile) return
 
     try {
       setUploadingAvatar(true)
-      const uploadResults = await lumi.tools.file.upload([file])
-      
-      if (uploadResults[0]?.fileUrl && !uploadResults[0]?.uploadError) {
-        const newAvatarUrl = uploadResults[0].fileUrl
-        
-        // Update profile in database
-        const updatedData = {
-          avatar_url: newAvatarUrl,
-          updated_at: new Date().toISOString()
-        }
+      const path = `${currentTenantId || 'solo'}/${user.userId}/avatar-${Date.now()}-${file.name}`
+      const newAvatarUrl = await uploadPhoto(file, path)
 
-        if (profile._id) {
-          await lumi.entities.user_profiles.update(profile._id, updatedData)
-        }
-
-        // Update local state
-        setProfile(prev => prev ? { ...prev, ...updatedData } : null)
-        setEditForm(prev => ({ ...prev, avatar_url: newAvatarUrl }))
-        
-        toast.success('Avatar updated successfully! 📸')
-      } else {
-        toast.error('Failed to upload avatar')
+      const updatedData: any = {
+        id: (profile as any).id,
+        user_id: user.userId,
+        tenant_id: currentTenantId || null,
+        avatar_url: newAvatarUrl,
       }
+      const { data: saved } = await upsertOwnProfile(updatedData)
+
+      if (saved) setProfile(saved as any)
+      setEditForm(prev => ({ ...prev, avatar_url: newAvatarUrl }))
+      toast.success('Avatar updated successfully! 📸')
     } catch (error) {
       console.error('Failed to upload avatar:', error)
       toast.error('Failed to upload avatar')
@@ -157,17 +159,16 @@ const UserProfile: React.FC = () => {
         updated_at: new Date().toISOString()
       }
 
-      if (profile._id) {
-        await lumi.entities.user_profiles.update(profile._id, updatedProfile)
+      let saved
+      if ((profile as any).id) {
+        const { data } = await upsertOwnProfile({ id: (profile as any).id, user_id: user.userId, tenant_id: currentTenantId || null, ...updatedProfile })
+        saved = data as any
       } else {
-        await lumi.entities.user_profiles.create({
-          ...updatedProfile,
-          user_id: user.userId,
-          created_at: new Date().toISOString()
-        })
+        const { data } = await upsertOwnProfile({ ...updatedProfile, user_id: user.userId, tenant_id: currentTenantId || null })
+        saved = data as any
       }
 
-      setProfile(prev => prev ? { ...prev, ...updatedProfile } : null)
+      if (saved) setProfile(saved)
       setIsEditing(false)
       toast.success('Profile updated successfully! 🎉')
     } catch (error) {

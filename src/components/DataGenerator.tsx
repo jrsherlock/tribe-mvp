@@ -1,7 +1,9 @@
 
 import React, { useState, useCallback } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { lumi } from '../lib/lumi'
+import { useTenant } from '../lib/tenant'
+import { upsert as upsertCheckin } from '../lib/services/checkins'
+import { supabase } from '../lib/supabase'
 import { motion } from 'framer-motion'
 import {Database, Trash2, Play, Square, AlertTriangle, CheckCircle, Loader2, Calendar, Users, BarChart3, Zap, RefreshCw, Settings, Info} from 'lucide-react'
 import { format, subDays, addDays } from 'date-fns'
@@ -101,6 +103,7 @@ const DIMENSION_COMMENTS = {
 
 const DataGenerator: React.FC = () => {
   const { user, isAuthenticated } = useAuth()
+  const { currentTenantId } = useTenant()
   const [isGenerating, setIsGenerating] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -262,8 +265,25 @@ const DataGenerator: React.FC = () => {
           
           const record = generateCheckinRecord(currentDate, dayIndex, newStats.totalRecords)
           
-          // Use the correct SDK pattern that works
-          await lumi.entities.daily_checkins.create(record)
+          // Insert via Supabase service
+          await upsertCheckin({
+            user_id: user!.userId,
+            tenant_id: currentTenantId || null,
+            checkin_date: record.checkin_date,
+            mental_rating: record.mental_rating,
+            emotional_rating: record.emotional_rating,
+            physical_rating: record.physical_rating,
+            social_rating: record.social_rating,
+            spiritual_rating: record.spiritual_rating,
+            mental_notes: record.mental_notes,
+            emotional_notes: record.emotional_notes,
+            physical_notes: record.physical_notes,
+            social_notes: record.social_notes,
+            spiritual_notes: record.spiritual_notes,
+            gratitude: record.gratitude,
+            is_private: false,
+            mood_emoji: record.mood_emoji || '😊',
+          })
           
           newStats.successCount++
           recordsProcessed++
@@ -310,13 +330,12 @@ const DataGenerator: React.FC = () => {
     setCurrentOperation('Deleting all check-in data...')
     
     try {
-      // Since we can't use collection().deleteMany(), we need to find and delete individually
-      // This is a limitation of the current SDK
-      setCurrentOperation('Finding records to delete...')
-      
-      // Try to get user's records (this might not work with current SDK limitations)
-      // For now, we'll show a message that manual deletion is needed
-      setCurrentOperation('Deletion completed - you may need to manually verify in database')
+      // Delete user's check-ins (optionally scoped by tenant)
+      let q = supabase.from('daily_checkins').delete().eq('user_id', user.userId)
+      if (currentTenantId) q = q.eq('tenant_id', currentTenantId)
+      else q = q.is('tenant_id', null)
+      await q
+      setCurrentOperation('Deletion completed')
       
     } catch (error) {
       console.error('Error deleting data:', error)
