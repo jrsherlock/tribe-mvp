@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTenant } from '../../lib/tenant'
+import { useUserRole } from '../../hooks/useUserRole'
 import { supabase } from '../../lib/supabase'
 import { listGroups, createGroup, deleteGroup, listGroupMembers, adminAddUserToGroup, adminUpdateGroupMembershipRole, type Group, type GroupMembership } from '../../lib/services/groups'
-import { isSuperuser, listTenants, createTenantRPC, updateTenant, deleteTenant, listMembershipsByTenant, upsertMembership, updateMembershipRole, deleteMembership, type Tenant, type Membership } from '../../lib/services/tenants'
+import { listTenants, createTenantRPC, updateTenant, deleteTenant, listMembershipsByTenant, upsertMembership, updateMembershipRole, deleteMembership, type Tenant, type Membership } from '../../lib/services/tenants'
+import { Shield, Lock, AlertCircle } from 'lucide-react'
 
 const Tab = {
   Facilities: 'Facilities',
@@ -23,9 +25,9 @@ const roleBadge = (role?: string) => {
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const { currentTenantId } = useTenant()
+  const { isSuperUser, isFacilityAdmin, role, loading: roleLoading } = useUserRole(currentTenantId)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabKey>(Tab.Facilities)
-  const [superuser, setSuperuser] = useState(false)
 
   // Facilities
   const [tenants, setTenants] = useState<Tenant[]>([])
@@ -41,22 +43,29 @@ const AdminDashboard: React.FC = () => {
   const [memberships, setMemberships] = useState<Membership[]>([])
   const [newMember, setNewMember] = useState<{ user_id: string; role: Membership['role'] }>({ user_id: '', role: 'MEMBER' })
 
-
+  // Check if user has admin access
+  const hasAdminAccess = isSuperUser || isFacilityAdmin
 
   useEffect(() => {
     const init = async () => {
-      if (!user) return
+      if (!user || roleLoading) return
+
+      // Wait for role to be loaded
+      if (!hasAdminAccess) {
+        setLoading(false)
+        return
+      }
+
       try {
         setLoading(true)
-        const { data: isSu } = await isSuperuser(user.userId)
-        setSuperuser(!!isSu)
 
-        if (isSu) {
+        if (isSuperUser) {
+          // SuperUsers can see all tenants
           const { data: allTenants } = await listTenants()
           setTenants(allTenants ?? [])
           if (allTenants && allTenants.length) setSelectedTenantId(allTenants[0].id)
         } else if (currentTenantId) {
-          // Non-superuser: scope to own tenant only (RLS already restricts selects)
+          // Facility Admins: scope to own tenant only (RLS already restricts selects)
           const { data: myTenants } = await listTenants()
           setTenants(myTenants ?? [])
           setSelectedTenantId(currentTenantId)
@@ -66,7 +75,7 @@ const AdminDashboard: React.FC = () => {
       }
     }
     init()
-  }, [user, currentTenantId])
+  }, [user, currentTenantId, isSuperUser, hasAdminAccess, roleLoading])
 
   // Load memberships and groups for selected tenant
   useEffect(() => {
@@ -158,14 +167,63 @@ const AdminDashboard: React.FC = () => {
   if (!user) return <div className="p-6">Please sign in.</div>
   if (loading) return <div className="p-6">Loading admin...</div>
 
-  // Access guard: must be superuser or have a tenant role (OWNER/ADMIN) or be group-admin somewhere
-  // For MVP, show the page but scoped; RLS will enforce server-side permissions.
+  // Show loading state while checking role
+  if (roleLoading || loading) {
+    return (
+      <div className="p-4 max-w-6xl mx-auto">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-sand-600">Loading admin dashboard...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Access guard: must be SuperUser or Facility Admin
+  if (!hasAdminAccess) {
+    return (
+      <div className="p-4 max-w-6xl mx-auto">
+        <div className="border border-red-200 rounded-lg p-6 bg-red-50">
+          <div className="flex items-start gap-3">
+            <Lock className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+            <div>
+              <h2 className="text-xl font-semibold text-red-900 mb-2">
+                Access Restricted
+              </h2>
+              <p className="text-red-800 mb-4">
+                Only SuperUsers and Facility Administrators can access the admin dashboard.
+              </p>
+              <div className="bg-white border border-red-200 rounded-lg p-4">
+                <p className="text-sm text-red-900 font-medium mb-2">
+                  Your current role: {role || 'Basic User'}
+                </p>
+                <p className="text-sm text-red-800">
+                  Contact a platform administrator if you believe you should have access.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-        <div className="text-sm">{superuser ? 'SuperUser' : 'Scoped Admin'}</div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+          <span className={`px-3 py-1 text-xs font-semibold rounded-full flex items-center gap-1 ${
+            isSuperUser ? 'bg-purple-100 text-purple-800 border border-purple-300' : 'bg-blue-100 text-blue-800 border border-blue-300'
+          }`}>
+            {isSuperUser && <Shield className="w-3 h-3" />}
+            {isSuperUser ? 'SuperUser' : 'Facility Admin'}
+          </span>
+        </div>
+        {!isSuperUser && currentTenantId && (
+          <div className="text-sm text-sand-600">
+            Scoped to your facility
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2 border-b">
@@ -177,13 +235,16 @@ const AdminDashboard: React.FC = () => {
       {/* Facilities Tab */}
       {activeTab===Tab.Facilities && (
         <div className="space-y-4">
-          {superuser && (
-            <div className="border p-3 rounded">
-              <div className="font-semibold mb-2">Create Facility</div>
+          {isSuperUser && (
+            <div className="border p-3 rounded bg-white shadow-sm">
+              <div className="font-semibold mb-2 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-purple-600" />
+                Create Facility (SuperUser Only)
+              </div>
               <div className="flex gap-2">
-                <input className="border px-2 py-1 rounded" placeholder="Name" value={newFacility.name} onChange={e=>setNewFacility(prev=>({...prev,name:e.target.value}))} />
-                <input className="border px-2 py-1 rounded" placeholder="Slug" value={newFacility.slug} onChange={e=>setNewFacility(prev=>({...prev,slug:e.target.value}))} />
-                <button className="px-3 py-1 bg-black text-white rounded" onClick={onCreateFacility}>Create</button>
+                <input className="border px-2 py-1 rounded flex-1" placeholder="Facility Name" value={newFacility.name} onChange={e=>setNewFacility(prev=>({...prev,name:e.target.value}))} />
+                <input className="border px-2 py-1 rounded flex-1" placeholder="slug-name" value={newFacility.slug} onChange={e=>setNewFacility(prev=>({...prev,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')}))} />
+                <button className="px-4 py-1 bg-sage-600 hover:bg-sage-700 text-white rounded transition-colors" onClick={onCreateFacility}>Create</button>
               </div>
             </div>
           )}
@@ -207,9 +268,9 @@ const AdminDashboard: React.FC = () => {
                       <div className="text-xs text-sand-600">{t.slug}</div>
                     </div>
                     <div className="flex gap-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>onUpdateFacility(t.id, { name: prompt('New name', t.name) || t.name })}>Rename</button>
-                      {superuser && <button className="px-2 py-1 border rounded" onClick={()=>onUpdateFacility(t.id, { slug: prompt('New slug', t.slug) || t.slug })}>Edit Slug</button>}
-                      {superuser && <button className="px-2 py-1 border rounded text-red-600" onClick={()=>onDeleteFacility(t.id)}>Delete</button>}
+                      <button className="px-2 py-1 border rounded hover:bg-sand-50 transition-colors" onClick={()=>onUpdateFacility(t.id, { name: prompt('New name', t.name) || t.name })}>Rename</button>
+                      {isSuperUser && <button className="px-2 py-1 border rounded hover:bg-sand-50 transition-colors" onClick={()=>onUpdateFacility(t.id, { slug: prompt('New slug', t.slug) || t.slug })}>Edit Slug</button>}
+                      {isSuperUser && <button className="px-2 py-1 border border-red-300 rounded text-red-600 hover:bg-red-50 transition-colors" onClick={()=>onDeleteFacility(t.id)}>Delete</button>}
                     </div>
                   </div>
                 </div>

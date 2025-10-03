@@ -4,17 +4,16 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useSobrietyStreak } from '../hooks/useSobrietyStreak';
 import { useTenant } from '../lib/tenant';
+import { useUserRole } from '../hooks/useUserRole';
 import { supabase } from '../lib/supabase';
 import { listProfilesByUserIds } from '../lib/services/profiles';
 import { motion, AnimatePresence } from 'framer-motion';
-import { isSuperuser } from '../lib/services/tenants';
 import { listMembershipsByUser } from '../lib/services/groups';
-import { Calendar, TrendingUp, Users, CheckCircle, Heart, Award, Sparkles, Star, Zap } from 'lucide-react';
+import { Calendar, TrendingUp, Users, CheckCircle, Heart, Award, Sparkles, Star, Zap, Shield } from 'lucide-react';
 import TribeCheckinCard from './TribeCheckinCard';
 import InteractiveCheckinModal from './InteractiveCheckinModal';
 import type { Checkin } from '../lib/services/checkins';
 import type { GroupMembership as GroupMembershipRow } from '../lib/services/groups';
-import type { Membership as TenantMembership } from '../lib/tenant';
 
 interface UserProfile { user_id: string; display_name?: string | null; avatar_url?: string | null }
 interface CheckinGroupShare { checkin_id: string; group_id: string }
@@ -50,15 +49,14 @@ interface TribeCheckin {
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { currentTenantId, memberships } = useTenant();
+  const { currentTenantId } = useTenant();
+  const { role, isSuperUser, isFacilityAdmin, canCreateFacilities, loading: roleLoading } = useUserRole(currentTenantId);
   const { streak, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
   const [recentCheckins, setRecentCheckins] = useState<RecentCheckin[]>([]);
   const [todayCheckin, setTodayCheckin] = useState<RecentCheckin | null>(null);
   const [loading, setLoading] = useState(true);
   const [tribeCheckins, setTribeCheckins] = useState<TribeCheckin[]>([]);
   const [selectedCheckin, setSelectedCheckin] = useState<TribeCheckin | null>(null);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [highestAdmin, setHighestAdmin] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -229,33 +227,25 @@ const Dashboard: React.FC = () => {
   };
 
 
-  // Determine admin access and highest role
-  useEffect(() => {
-    let cancelled = false
-    async function checkAuthz() {
-      if (!user) { setShowAdmin(false); setHighestAdmin(null); return }
-      const hasFacilityAdmin = ((memberships ?? []) as TenantMembership[]).some((m) => m.role === 'OWNER' || m.role === 'ADMIN')
-      try {
-        const [{ data: su }, { data: gm }] = await Promise.all([
-          isSuperuser(user.userId),
-          listMembershipsByUser(user.userId)
-        ])
-        if (cancelled) return
-        const isSu = !!su
-        const groupRows = (gm ?? []) as GroupMembershipRow[]
-        const isGroupAdmin = groupRows.some((r) => r.role === 'ADMIN')
-        setShowAdmin(isSu || hasFacilityAdmin || isGroupAdmin)
-        if (isSu) setHighestAdmin('SuperUser')
-        else if (hasFacilityAdmin) setHighestAdmin('Facility Admin')
-        else if (isGroupAdmin) setHighestAdmin('Group Admin')
-        else setHighestAdmin(null)
-      } catch {
-        if (!cancelled) { setShowAdmin(false); setHighestAdmin(null) }
-      }
-    }
-    checkAuthz()
-    return () => { cancelled = true }
-  }, [user, memberships])
+  // Determine if user should see admin link
+  const showAdmin = isSuperUser || isFacilityAdmin || role === 'ADMIN';
+
+  // Get display name for role badge
+  const getRoleBadgeText = () => {
+    if (role === 'SUPERUSER') return '👑 Super Admin';
+    if (role === 'OWNER') return '🏢 Facility Owner';
+    if (role === 'ADMIN') return '⚙️ Facility Admin';
+    if (role === 'MEMBER') return '👤 Member';
+    return '✨ Basic User';
+  };
+
+  const getRoleBadgeColor = () => {
+    if (role === 'SUPERUSER') return 'bg-purple-100 text-purple-800 border-purple-300';
+    if (role === 'OWNER') return 'bg-blue-100 text-blue-800 border-blue-300';
+    if (role === 'ADMIN') return 'bg-blue-100 text-blue-700 border-blue-300';
+    if (role === 'MEMBER') return 'bg-green-100 text-green-800 border-green-300';
+    return 'bg-sand-100 text-sand-800 border-sand-300';
+  };
 
   if (loading || streakLoading) {
 
@@ -284,13 +274,14 @@ const Dashboard: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-center space-y-4">
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center gap-3 flex-wrap">
             <h1 className="font-bold text-secondary-800 text-3xl">
               Welcome back, {user?.email ?? 'Friend'}! ✨
             </h1>
-            {highestAdmin && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs border bg-secondary-50 text-secondary-800">
-                {highestAdmin}
+            {role && (
+              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${getRoleBadgeColor()}`}>
+                {isSuperUser && <Shield className="w-3 h-3" />}
+                {getRoleBadgeText()}
               </span>
             )}
           </div>
@@ -305,20 +296,36 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-semibold">Enable Facility Features</div>
-                <div className="text-sm text-sand-700">Create a facility to unlock groups and community sharing.</div>
+                <div className="text-sm text-sand-700">
+                  {canCreateFacilities
+                    ? 'Create a facility to unlock groups and community sharing.'
+                    : 'Join a facility to unlock groups and community sharing.'}
+                </div>
               </div>
-              <Link to="/tenant/setup" className="px-4 py-2 bg-sage-600 text-white rounded-lg">Create Facility</Link>
+              {canCreateFacilities ? (
+                <Link to="/tenant/setup" className="px-4 py-2 bg-sage-600 hover:bg-sage-700 text-white rounded-lg transition-colors">
+                  Create Facility
+                </Link>
+              ) : (
+                <div className="text-sm text-sand-600">
+                  Contact an admin to join
+                </div>
+              )}
             </div>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto mb-6 p-3 border rounded-xl bg-secondary-50 text-sand-800 flex items-center justify-between">
             <div className="text-sm">Manage your facility groups</div>
-            <Link to="/groups" className="px-3 py-2 bg-secondary-700 text-white rounded-lg text-sm">Open Groups</Link>
+            <Link to="/groups" className="px-3 py-2 bg-secondary-700 hover:bg-secondary-800 text-white rounded-lg text-sm transition-colors">
+              Open Groups
+            </Link>
           </div>
         )}
         {showAdmin && (
           <div className="max-w-3xl mx-auto -mt-4 mb-4 text-right">
-            <Link to="/admin" className="inline-block px-3 py-2 border rounded-lg text-sand-800 hover:bg-secondary-50">Open Admin</Link>
+            <Link to="/admin" className="inline-block px-3 py-2 border rounded-lg text-sand-800 hover:bg-secondary-50 transition-colors">
+              Open Admin
+            </Link>
           </div>
         )}
 
@@ -507,18 +514,12 @@ const Dashboard: React.FC = () => {
             </div>
 
             <div className="mb-6 space-y-3">
-              <div className="flex items-center space-x-3">
-                <div className="w-3 h-3 bg-accent-500 rounded-full animate-gentle-pulse"></div>
-                <span className="text-secondary-700 font-medium">Share your journey</span>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="w-3 h-3 bg-accent-500 rounded-full animate-gentle-pulse"></div>
-                <span className="text-secondary-700 font-medium">Support others</span>
-              </div>
-              <div className="flex items-center space-x-3">
-                <div className="w-3 h-3 bg-accent-500 rounded-full animate-gentle-pulse"></div>
-                <span className="text-secondary-700 font-medium">Build connections</span>
-              </div>
+              {['Share your journey', 'Support others', 'Build connections'].map((text, index) => (
+                <div key={index} className="flex items-center space-x-3">
+                  <div className="w-3 h-3 bg-accent-500 rounded-full animate-gentle-pulse"></div>
+                  <span className="text-secondary-700 font-medium">{text}</span>
+                </div>
+              ))}
             </div>
 
             <Link
@@ -586,9 +587,13 @@ const Dashboard: React.FC = () => {
           </blockquote>
           <cite className="text-white/90 opacity-90">— Recovery Community</cite>
           <div className="flex justify-center space-x-2 mt-4">
-            <Sparkles className="w-4 h-4 animate-bounce-gentle" />
-            <Sparkles className="w-4 h-4 animate-bounce-gentle" style={{ animationDelay: '0.2s' }} />
-            <Sparkles className="w-4 h-4 animate-bounce-gentle" style={{ animationDelay: '0.4s' }} />
+            {[0, 0.2, 0.4].map((delay, index) => (
+              <Sparkles
+                key={index}
+                className="w-4 h-4 animate-bounce-gentle"
+                style={{ animationDelay: `${delay}s` }}
+              />
+            ))}
           </div>
         </motion.div>
       </div>
