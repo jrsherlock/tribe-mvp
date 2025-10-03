@@ -376,7 +376,7 @@ const SanghaFeed: React.FC = () => {
               onClick={() => setFilterMode('all')}
               className={`px-4 py-2 rounded-xl font-medium transition-all border ${
                 filterMode === 'all'
-                  ? 'bg-accent text-white shadow-md border-accent'
+                  ? 'bg-accent-600 text-white shadow-md border-accent-600'
                   : 'bg-white text-primary-700 hover:bg-primary-50 border-primary-200 shadow-sm'
               }`}
             >
@@ -386,7 +386,7 @@ const SanghaFeed: React.FC = () => {
               onClick={() => setFilterMode('today')}
               className={`px-4 py-2 rounded-xl font-medium transition-all border ${
                 filterMode === 'today'
-                  ? 'bg-accent text-white shadow-md border-accent'
+                  ? 'bg-accent-600 text-white shadow-md border-accent-600'
                   : 'bg-white text-primary-700 hover:bg-primary-50 border-primary-200 shadow-sm'
               }`}
             >
@@ -437,8 +437,8 @@ const SanghaFeed: React.FC = () => {
               >
                 {/* Check-in Header */}
                 <div className="flex items-start space-x-4 mb-4">
-                  <div 
-                    className="w-12 h-12 rounded-full overflow-hidden bg-accent flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-accent/50 transition-all"
+                  <div
+                    className="w-12 h-12 rounded-full overflow-hidden bg-accent-600 flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-accent-600/50 transition-all"
                     onClick={() => handleUserClick(checkin.user_id)}
                   >
                     {profile?.avatar_url ? (
@@ -653,7 +653,7 @@ const SanghaFeed: React.FC = () => {
                   <button
                     onClick={() => addComment(checkin._id || '')}
                     disabled={!commentInputs.get(checkin._id || '')?.trim()}
-                    className="p-2 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 bg-accent-600 text-white rounded-lg hover:bg-accent-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Send size={16} />
                   </button>

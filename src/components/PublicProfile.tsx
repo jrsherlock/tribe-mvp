@@ -163,7 +163,7 @@ const PublicProfile: React.FC<PublicProfileProps> = ({ userId, onClose }) => {
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-primary-50 rounded-2xl p-4 text-center">
-                  <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <div className="w-12 h-12 bg-accent-600 rounded-xl flex items-center justify-center mx-auto mb-3">
                     <Award className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-2xl font-bold text-primary-800 mb-1">{streak}</div>

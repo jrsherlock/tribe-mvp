@@ -551,7 +551,7 @@ const DataGenerator: React.FC = () => {
               <div className="space-y-4">
                 <div className="w-full bg-primary-200 rounded-full h-3">
                   <div
-                    className="bg-accent h-3 rounded-full transition-all duration-300"
+                    className="bg-accent-600 h-3 rounded-full transition-all duration-300"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
@@ -611,7 +611,7 @@ const DataGenerator: React.FC = () => {
             className={`flex-1 flex items-center justify-center gap-3 px-8 py-4 rounded-xl font-semibold text-lg transition-all ${
               isGenerating
                 ? 'bg-red-500 hover:bg-red-600 text-white'
-                : 'bg-accent hover:bg-accent/90 text-white disabled:bg-gray-300 disabled:text-gray-500'
+                : 'bg-accent-600 hover:bg-accent-700 text-white disabled:bg-gray-300 disabled:text-gray-500'
             }`}
           >
             {isGenerating ? (

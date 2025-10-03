@@ -234,7 +234,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
         {isOwnProfile && (
           <button
             onClick={() => setShowCreateAlbum(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-accent text-white rounded-xl hover:bg-accent/90 transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 bg-accent-600 text-white rounded-xl hover:bg-accent-700 transition-colors"
           >
             <Plus size={16} />
             <span>New Album</span>
@@ -326,7 +326,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
             {isOwnProfile && (
               <button
                 onClick={() => setShowPhotoUpload(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-accent text-white rounded-xl hover:bg-accent/90 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-accent-600 text-white rounded-xl hover:bg-accent-700 transition-colors"
               >
                 <Upload size={16} />
                 <span>Add Photos</span>
@@ -431,7 +431,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
                   <button
                     onClick={createAlbum}
                     disabled={!newAlbum.title.trim()}
-                    className="flex-1 py-3 bg-accent text-white rounded-xl hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 py-3 bg-accent-600 text-white rounded-xl hover:bg-accent-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Create Album
                   </button>

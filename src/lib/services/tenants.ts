@@ -45,13 +45,13 @@ export async function deleteTenant(tenantId: string) {
 }
 
 export async function listMembershipsByTenant(tenantId: string) {
-  return supabase.from('memberships').select('*').eq('tenant_id', tenantId)
+  return supabase.from('tenant_members').select('*').eq('tenant_id', tenantId)
 }
 
 export async function upsertMembership(params: { user_id: string; tenant_id: string; role?: Membership['role'] }) {
   // Insert or update role for a user in a tenant
   const { data, error } = await supabase
-    .from('memberships')
+    .from('tenant_members')
     .upsert({ user_id: params.user_id, tenant_id: params.tenant_id, role: params.role ?? 'MEMBER' })
     .select()
     .single()
@@ -59,14 +59,14 @@ export async function upsertMembership(params: { user_id: string; tenant_id: str
 }
 
 export async function updateMembershipRole(params: { user_id: string; tenant_id: string; role: Membership['role'] }) {
-  return supabase.from('memberships')
+  return supabase.from('tenant_members')
     .update({ role: params.role })
     .eq('user_id', params.user_id)
     .eq('tenant_id', params.tenant_id)
 }
 
 export async function deleteMembership(params: { user_id: string; tenant_id: string }) {
-  return supabase.from('memberships')
+  return supabase.from('tenant_members')
     .delete()
     .eq('user_id', params.user_id)
     .eq('tenant_id', params.tenant_id)

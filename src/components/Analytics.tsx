@@ -488,7 +488,7 @@ const Analytics: React.FC = () => {
           </p>
           <button
             onClick={() => window.location.href = '/'}
-            className="bg-accent text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent/90 transition-colors"
+            className="bg-accent-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent-700 transition-colors"
           >
             Go to Dashboard
           </button>
@@ -534,7 +534,7 @@ const Analytics: React.FC = () => {
             
             <button
               onClick={() => window.location.href = '/data-generator'}
-              className="w-full bg-accent text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent/90 transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-accent-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent-700 transition-colors flex items-center justify-center gap-2"
             >
               <Database className="w-5 h-5" />
               Go to Data Generator
@@ -570,7 +570,7 @@ const Analytics: React.FC = () => {
           <div className="space-y-4">
             <button
               onClick={() => window.location.href = '/data-generator'}
-              className="w-full bg-accent text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent/90 transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-accent-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-accent-700 transition-colors flex items-center justify-center gap-2"
             >
               <Database className="w-5 h-5" />
               Generate Sample Data

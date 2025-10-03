@@ -10,11 +10,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { signOut } = useAuth();
 
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: Home, color: 'sage' },
+    { name: 'Dashboard', href: '/', icon: Home, color: 'ocean' },
     { name: 'Profile', href: '/profile', icon: User, color: 'ocean' },
-    { name: 'Check-in', href: '/checkin', icon: PlusCircle, color: 'sage' },
-    { name: 'Sangha Feed', href: '/sangha', icon: Users, color: 'sunrise' },
-    { name: 'Photo Albums', href: '/albums', icon: Camera, color: 'lavender' },
+    { name: 'Check-in', href: '/checkin', icon: PlusCircle, color: 'ocean' },
+    { name: 'Sangha Feed', href: '/sangha', icon: Users, color: 'ocean' },
+    { name: 'Photo Albums', href: '/albums', icon: Camera, color: 'ocean' },
     { name: 'Analytics', href: '/analytics', icon: BarChart3, color: 'ocean' },
   ];
 
@@ -95,7 +95,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <div className="p-4 border-t border-secondary-200">
             <button
               onClick={handleSignOut}
-              className="flex items-center w-full px-4 py-4 text-sm font-semibold text-secondary-700 rounded-xl hover:bg-accent-50 hover:text-accent-600 transition-all duration-200 hover:transform hover:scale-105"
+              className="flex items-center w-full px-4 py-4 text-sm font-semibold text-secondary-700 rounded-xl hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 hover:transform hover:scale-105"
             >
               <LogOut size={22} className="mr-3" />
               Sign Out

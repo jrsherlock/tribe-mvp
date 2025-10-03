@@ -35,10 +35,16 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         inFlight = false
         return
       }
-      const { data, error } = await supabase.from('memberships').select('*')
+      const { data, error } = await supabase.from('tenant_members').select('*')
       if (!isMounted) { inFlight = false; return }
       if (error) {
-        console.error('Load memberships error', error)
+        console.error('Load tenant_members error:', error)
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        })
         setMemberships([])
         setCurrentTenantId(null)
       } else {

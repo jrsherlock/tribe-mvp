@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useTenant } from '../lib/tenant';
 import { getTodayForUser, upsert as upsertCheckin } from '../lib/services/checkins';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, Lock, Globe, Plus, X, Heart, Smile, Brain, HeartHandshake, Activity, Users, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { Save, Lock, Globe, Plus, X, Heart, Smile, Brain, HeartHandshake, Activity, Users, Sparkles, CheckCircle, AlertCircle, Wand2 } from 'lucide-react';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import toast from 'react-hot-toast';
 import { ToastContent, getToastStyles, therapeuticToasts } from './ui/Toast';
@@ -74,38 +74,116 @@ const DailyCheckin: React.FC = () => {
   {
     key: 'mental',
     label: 'Mental',
-    color: 'from-sage-600 to-sage-700', // Sage green - darker for better contrast
+    color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Clarity, focus, mental health',
     icon: Brain
   },
   {
     key: 'emotional',
     label: 'Emotional',
-    color: 'from-ocean-600 to-ocean-700', // Ocean blue - calm and stable
+    color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Feelings, mood, emotional wellbeing',
     icon: HeartHandshake
   },
   {
     key: 'physical',
     label: 'Physical',
-    color: 'from-success-600 to-success-700', // Success green - health and vitality
+    color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Energy, health, physical condition',
     icon: Activity
   },
   {
     key: 'social',
     label: 'Social',
-    color: 'from-accent-600 to-accent-700', // Sunrise orange - connection and warmth
+    color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Relationships, connections, community',
     icon: Users
   },
   {
     key: 'spiritual',
     label: 'Spiritual',
-    color: 'from-lavender-600 to-lavender-700', // Lavender - spiritual and peaceful
+    color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Purpose, meaning, inner peace',
     icon: Sparkles
   }];
+
+  // DEV ONLY: Sample data pools for quick testing
+  const sampleData = {
+    mental: [
+      "Feeling clear-headed today after a good night's sleep. My focus has improved significantly since I started my recovery journey. Still working on managing racing thoughts in the evening.",
+      "Had some brain fog this morning but it cleared up after meditation. I'm noticing my cognitive function is slowly returning. Grateful for the mental clarity that comes with sobriety.",
+      "Concentration was challenging today, but I reminded myself that healing takes time. Practiced mindfulness exercises which helped. My therapist says this is normal for this stage of recovery.",
+      "Mind feels sharp and focused. Completed several tasks I'd been putting off. The mental fog from active addiction is finally lifting after 90 days clean.",
+      "Struggled with intrusive thoughts today but used my coping strategies. Journaling helped me process difficult emotions. Recovery is teaching me to be patient with my healing brain."
+    ],
+    emotional: [
+      "Feeling more emotionally stable than last week. Had a moment of sadness but was able to sit with it without turning to old habits. Progress, not perfection.",
+      "Experienced some anxiety this morning but reached out to my sponsor. Talking through my feelings helped tremendously. Learning that emotions are temporary and manageable.",
+      "Felt genuine joy today for the first time in months. Laughed with friends at my recovery meeting. These moments remind me why I'm doing this hard work.",
+      "Processing some grief around relationships damaged by my addiction. It's painful but necessary. My support group reminds me I'm not alone in this healing.",
+      "Emotional regulation is getting easier. I didn't react impulsively to a trigger today. Instead, I paused, breathed, and chose a healthy response. Small victories matter."
+    ],
+    physical: [
+      "Energy levels are improving steadily. Went for a 30-minute walk and felt great afterward. My body is healing and I can feel the difference.",
+      "Sleep was restless but I'm being patient with my body's recovery process. Started gentle yoga which helps with the physical tension I carry. One day at a time.",
+      "Feeling strong today! Hit the gym for the first time in years. My physical health is a priority now and it feels amazing to take care of my body.",
+      "Dealing with some post-acute withdrawal symptoms but staying committed. Drinking plenty of water and eating nutritious meals. My body deserves this care.",
+      "Physical cravings were present today but manageable. Went for a run to release the tension. Exercise is becoming my new healthy outlet."
+    ],
+    social: [
+      "Attended my recovery group meeting and felt truly connected. Shared my story and received so much support. Community is essential to my healing.",
+      "Had coffee with a friend from the program. It's refreshing to build relationships based on authenticity and mutual support rather than using together.",
+      "Feeling isolated today but reached out instead of withdrawing. My sponsor reminded me that connection is crucial. Made plans to attend a meeting tomorrow.",
+      "Reconnected with family members I'd hurt during active addiction. The conversation was difficult but healing. Rebuilding trust takes time and I'm committed to the process.",
+      "Celebrated a milestone with my recovery community. Their encouragement means everything. I'm learning what healthy relationships look like."
+    ],
+    spiritual: [
+      "Spent time in meditation this morning and felt a deep sense of peace. My spiritual practice is becoming the foundation of my recovery.",
+      "Feeling grateful for the opportunity to start over. Surrendering control has been challenging but liberating. Finding purpose beyond my addiction.",
+      "Connected with my higher power through nature today. A simple walk reminded me I'm part of something bigger. Spirituality doesn't have to be complicated.",
+      "Struggling with faith today but showing up anyway. My spiritual journey isn't linear and that's okay. Progress happens even in the valleys.",
+      "Feeling aligned with my values for the first time in years. Living with integrity brings a peace I never found in substances. This is what freedom feels like."
+    ],
+    gratitude: [
+      "My sobriety and the clarity it brings",
+      "My sponsor who answers the phone at any hour",
+      "The support of my recovery community",
+      "Another day clean and the chance to heal",
+      "My family's patience and willingness to rebuild trust",
+      "The strength I'm discovering within myself",
+      "Access to treatment and recovery resources",
+      "Small victories and daily progress",
+      "The ability to feel emotions again, even difficult ones",
+      "A second chance at life",
+      "Friends who understand the recovery journey",
+      "My health improving day by day",
+      "The wisdom shared in meetings",
+      "Peaceful mornings without hangovers",
+      "The courage to face my past and build a better future"
+    ]
+  };
+
+  // DEV ONLY: Function to fill sample data
+  const fillSampleData = (category: string) => {
+    if (category === 'gratitude') {
+      // Add 2-3 random gratitude items
+      const numItems = Math.floor(Math.random() * 2) + 2; // 2 or 3 items
+      const shuffled = [...sampleData.gratitude].sort(() => 0.5 - Math.random());
+      const selectedItems = shuffled.slice(0, numItems);
+      setCheckinData((prev) => ({
+        ...prev,
+        gratitude: [...prev.gratitude.filter(g => g.trim()), ...selectedItems]
+      }));
+    } else {
+      // Fill notes for MEPSS categories
+      const samples = sampleData[category as keyof typeof sampleData] as string[];
+      const randomSample = samples[Math.floor(Math.random() * samples.length)];
+      setCheckinData((prev) => ({
+        ...prev,
+        [`${category}_notes`]: randomSample
+      }));
+    }
+  };
 
 
   // Close emoji picker when clicking outside
@@ -530,13 +608,23 @@ const DailyCheckin: React.FC = () => {
 
             {/* Notes */}
             <div className="mt-4">
-              <textarea
-                placeholder={`How is your ${category.label.toLowerCase()} wellbeing today? Share your thoughts...`}
-                value={checkinData[`${category.key}_notes` as keyof CheckinData]}
-                onChange={(e) => handleNotesChange(category.key, e.target.value)}
-                className="w-full p-3 border border-primary-200 rounded-xl focus:ring-2 focus:ring-accent focus:border-transparent resize-none bg-secondary"
-                rows={2} />
+              <div className="flex items-start gap-2">
+                <textarea
+                  placeholder={`How is your ${category.label.toLowerCase()} wellbeing today? Share your thoughts...`}
+                  value={checkinData[`${category.key}_notes` as keyof CheckinData]}
+                  onChange={(e) => handleNotesChange(category.key, e.target.value)}
+                  className="flex-1 p-3 border border-primary-200 rounded-xl focus:ring-2 focus:ring-accent focus:border-transparent resize-none bg-secondary"
+                  rows={2} />
 
+                {/* DEV ONLY: Fill Sample Button */}
+                <button
+                  type="button"
+                  onClick={() => fillSampleData(category.key)}
+                  className="flex-shrink-0 p-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors border border-purple-300 group"
+                  title="DEV: Fill with sample data">
+                  <Wand2 size={16} className="group-hover:rotate-12 transition-transform" />
+                </button>
+              </div>
             </div>
           </motion.div>);
 
@@ -549,9 +637,21 @@ const DailyCheckin: React.FC = () => {
         transition={{ delay: 0.6 }}
         className="bg-secondary rounded-3xl p-6 shadow-lg border border-primary-200">
 
-        <div className="flex items-center space-x-3 mb-4">
-          <Heart className="w-5 h-5 text-accent" />
-          <h3 className="text-lg font-semibold text-sand-800">Gratitude</h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <Heart className="w-5 h-5 text-accent" />
+            <h3 className="text-lg font-semibold text-sand-800">Gratitude</h3>
+          </div>
+
+          {/* DEV ONLY: Fill Sample Gratitude Button */}
+          <button
+            type="button"
+            onClick={() => fillSampleData('gratitude')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors border border-purple-300 text-sm group"
+            title="DEV: Add sample gratitude items">
+            <Wand2 size={14} className="group-hover:rotate-12 transition-transform" />
+            <span className="font-medium">Fill Sample</span>
+          </button>
         </div>
 
         <div className="space-y-3">
