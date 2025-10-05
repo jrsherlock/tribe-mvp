@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useAdminTreeData } from '@/hooks/useAdminTreeData';
-import { Building2, Users, User, AlertTriangle, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { Building2, Users, User, AlertTriangle, Search, ChevronDown, ChevronRight, Plus, Edit, Trash2, UserPlus, MoreVertical } from 'lucide-react';
 import type { TreeNode, UserRole } from '@/types/admin-tree.types';
 import {
   SuperUserBadge,
@@ -17,6 +17,16 @@ import {
   EmptyBadge,
   CurrentUserBadge
 } from './TreeBadge';
+import { CreateFacilityModal } from './CreateFacilityModal';
+import { CreateGroupModal } from './CreateGroupModal';
+import { EditEntityModal, type EditEntityData, type EntityType } from './EditEntityModal';
+import { DeleteConfirmationDialog, type DeleteConfirmationProps } from './DeleteConfirmationDialog';
+import { AssignToGroupModal } from './AssignToGroupModal';
+import { InviteUserModal } from './InviteUserModal';
+import { deleteTenant } from '@/lib/services/tenants';
+import { deleteGroup } from '@/lib/services/groups';
+import { supabase } from '@/lib/supabase';
+import toast from 'react-hot-toast';
 
 export function AdminTreeView() {
   const { user } = useAuth();
@@ -43,6 +53,21 @@ export function AdminTreeView() {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<TreeNode | null>(null);
 
+  // Modal state
+  const [showCreateFacility, setShowCreateFacility] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showEditEntity, setShowEditEntity] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showAssignToGroup, setShowAssignToGroup] = useState(false);
+  const [showInviteUser, setShowInviteUser] = useState(false);
+
+  // Modal data
+  const [createGroupData, setCreateGroupData] = useState<{ tenantId: string; tenantName: string } | null>(null);
+  const [editEntityData, setEditEntityData] = useState<{ type: EntityType; data: EditEntityData } | null>(null);
+  const [deleteConfirmData, setDeleteConfirmData] = useState<Omit<DeleteConfirmationProps, 'onConfirm' | 'onCancel'> | null>(null);
+  const [assignToGroupData, setAssignToGroupData] = useState<{ userId: string; userName: string; tenantId: string; currentGroupIds: string[] } | null>(null);
+  const [inviteUserData, setInviteUserData] = useState<{ tenantId: string; tenantName: string } | null>(null);
+
   // Handle expand/collapse
   const toggleExpand = (nodeId: string) => {
     setExpandedNodes(prev => {
@@ -63,6 +88,99 @@ export function AdminTreeView() {
 
   const collapseAll = () => {
     setExpandedNodes(new Set());
+  };
+
+  // Action handlers
+  const handleCreateFacility = () => {
+    setShowCreateFacility(true);
+  };
+
+  const handleCreateGroup = (tenantId: string, tenantName: string) => {
+    setCreateGroupData({ tenantId, tenantName });
+    setShowCreateGroup(true);
+  };
+
+  const handleEditEntity = (type: EntityType, data: EditEntityData) => {
+    setEditEntityData({ type, data });
+    setShowEditEntity(true);
+  };
+
+  const handleDeleteEntity = async (node: TreeNode) => {
+    if (node.type === 'tenant') {
+      setDeleteConfirmData({
+        title: 'Delete Facility',
+        message: 'Are you sure you want to delete this facility? This action cannot be undone.',
+        entityName: node.tenantData.name,
+        entityType: 'facility',
+        warningMessage: 'All groups, memberships, and data associated with this facility will be permanently deleted.',
+        confirmText: 'Delete Facility'
+      });
+      setShowDeleteConfirm(true);
+    } else if (node.type === 'group') {
+      setDeleteConfirmData({
+        title: 'Delete Group',
+        message: 'Are you sure you want to delete this group? This action cannot be undone.',
+        entityName: node.groupData.name,
+        entityType: 'group',
+        warningMessage: 'All memberships in this group will be removed.',
+        confirmText: 'Delete Group'
+      });
+      setShowDeleteConfirm(true);
+    } else if (node.type === 'user') {
+      setDeleteConfirmData({
+        title: 'Remove User',
+        message: 'Are you sure you want to remove this user from the facility?',
+        entityName: node.userData.display_name,
+        entityType: 'membership',
+        warningMessage: 'The user will be removed from all groups in this facility.',
+        confirmText: 'Remove User'
+      });
+      setShowDeleteConfirm(true);
+    }
+  };
+
+  const handleAssignToGroup = (userId: string, userName: string, tenantId: string, currentGroupIds: string[]) => {
+    setAssignToGroupData({ userId, userName, tenantId, currentGroupIds });
+    setShowAssignToGroup(true);
+  };
+
+  const handleInviteUser = (tenantId: string, tenantName: string) => {
+    setInviteUserData({ tenantId, tenantName });
+    setShowInviteUser(true);
+  };
+
+  const executeDelete = async () => {
+    if (!selectedNode || !deleteConfirmData) return;
+
+    try {
+      if (selectedNode.type === 'tenant') {
+        const { error } = await deleteTenant(selectedNode.tenantData.id);
+        if (error) throw error;
+        toast.success('Facility deleted successfully');
+      } else if (selectedNode.type === 'group') {
+        const { error } = await deleteGroup(selectedNode.groupData.id);
+        if (error) throw error;
+        toast.success('Group deleted successfully');
+      } else if (selectedNode.type === 'user') {
+        // Remove user from tenant
+        const { error } = await supabase
+          .from('tenant_members')
+          .delete()
+          .eq('user_id', selectedNode.userData.user_id)
+          .eq('tenant_id', selectedNode.userData.tenant_id);
+        if (error) throw error;
+        toast.success('User removed successfully');
+      }
+
+      refetch();
+      setSelectedNode(null);
+      setShowDeleteConfirm(false);
+      setDeleteConfirmData(null);
+    } catch (error: any) {
+      console.error('Delete error:', error);
+      toast.error(error.message || 'Failed to delete');
+      throw error;
+    }
   };
 
   // Loading state
@@ -138,19 +256,32 @@ export function AdminTreeView() {
         </div>
 
         {/* Toolbar */}
-        <div className="p-4 border-b border-gray-200 flex gap-2">
-          <button
-            onClick={expandAll}
-            className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-          >
-            Expand All
-          </button>
-          <button
-            onClick={collapseAll}
-            className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
-          >
-            Collapse All
-          </button>
+        <div className="p-4 border-b border-gray-200 space-y-2">
+          <div className="flex gap-2">
+            <button
+              onClick={expandAll}
+              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Expand All
+            </button>
+            <button
+              onClick={collapseAll}
+              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Collapse All
+            </button>
+          </div>
+
+          {/* Action Buttons */}
+          {isSuperUser && (
+            <button
+              onClick={handleCreateFacility}
+              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              Create Facility
+            </button>
+          )}
         </div>
 
         {/* Tree Container */}
@@ -199,6 +330,125 @@ export function AdminTreeView() {
                 {selectedNode.type === 'user' && selectedNode.userData.isCurrentUser && <CurrentUserBadge />}
                 {selectedNode.type === 'tenant' && selectedNode.tenantData.isOrphaned && <EmptyBadge label="Orphaned" />}
                 {selectedNode.type === 'group' && selectedNode.groupData.isEmpty && <EmptyBadge label="Empty Group" />}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 mb-6">
+                {/* Tenant Actions */}
+                {selectedNode.type === 'tenant' && (
+                  <>
+                    {(isSuperUser || isFacilityAdmin) && (
+                      <button
+                        onClick={() => handleCreateGroup(selectedNode.tenantData.id, selectedNode.tenantData.name)}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create Group
+                      </button>
+                    )}
+                    {(isSuperUser || isFacilityAdmin) && (
+                      <button
+                        onClick={() => handleInviteUser(selectedNode.tenantData.id, selectedNode.tenantData.name)}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Invite User
+                      </button>
+                    )}
+                    {isSuperUser && (
+                      <button
+                        onClick={() => handleEditEntity('facility', {
+                          id: selectedNode.tenantData.id,
+                          name: selectedNode.tenantData.name,
+                          slug: selectedNode.tenantData.slug
+                        })}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Edit
+                      </button>
+                    )}
+                    {isSuperUser && (
+                      <button
+                        onClick={() => handleDeleteEntity(selectedNode)}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {/* Group Actions */}
+                {selectedNode.type === 'group' && (
+                  <>
+                    {(isSuperUser || isFacilityAdmin) && (
+                      <button
+                        onClick={() => handleEditEntity('group', {
+                          id: selectedNode.groupData.id,
+                          name: selectedNode.groupData.name,
+                          description: selectedNode.groupData.description
+                        })}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Edit
+                      </button>
+                    )}
+                    {(isSuperUser || isFacilityAdmin) && (
+                      <button
+                        onClick={() => handleDeleteEntity(selectedNode)}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {/* User Actions */}
+                {selectedNode.type === 'user' && (
+                  <>
+                    {(isSuperUser || isFacilityAdmin) && selectedNode.userData.tenant_id && (
+                      <button
+                        onClick={() => handleAssignToGroup(
+                          selectedNode.userData.user_id,
+                          selectedNode.userData.display_name,
+                          selectedNode.userData.tenant_id!,
+                          selectedNode.userData.groupRoles.map(g => g.groupId)
+                        )}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Assign to Groups
+                      </button>
+                    )}
+                    {(isSuperUser || isFacilityAdmin) && (
+                      <button
+                        onClick={() => handleEditEntity('user', {
+                          id: selectedNode.userData.id,
+                          display_name: selectedNode.userData.display_name,
+                          email: selectedNode.userData.email
+                        })}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Edit
+                      </button>
+                    )}
+                    {(isSuperUser || isFacilityAdmin) && !selectedNode.userData.isCurrentUser && (
+                      <button
+                        onClick={() => handleDeleteEntity(selectedNode)}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 text-sm font-medium"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Remove
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
 
@@ -317,6 +567,94 @@ export function AdminTreeView() {
           </div>
         )}
       </div>
+
+      {/* Modals */}
+      {showCreateFacility && (
+        <CreateFacilityModal
+          onClose={() => setShowCreateFacility(false)}
+          onSuccess={() => {
+            refetch();
+            setShowCreateFacility(false);
+          }}
+        />
+      )}
+
+      {showCreateGroup && createGroupData && (
+        <CreateGroupModal
+          tenantId={createGroupData.tenantId}
+          tenantName={createGroupData.tenantName}
+          onClose={() => {
+            setShowCreateGroup(false);
+            setCreateGroupData(null);
+          }}
+          onSuccess={() => {
+            refetch();
+            setShowCreateGroup(false);
+            setCreateGroupData(null);
+          }}
+        />
+      )}
+
+      {showEditEntity && editEntityData && (
+        <EditEntityModal
+          entityType={editEntityData.type}
+          data={editEntityData.data}
+          onClose={() => {
+            setShowEditEntity(false);
+            setEditEntityData(null);
+          }}
+          onSuccess={() => {
+            refetch();
+            setShowEditEntity(false);
+            setEditEntityData(null);
+          }}
+        />
+      )}
+
+      {showDeleteConfirm && deleteConfirmData && (
+        <DeleteConfirmationDialog
+          {...deleteConfirmData}
+          onConfirm={executeDelete}
+          onCancel={() => {
+            setShowDeleteConfirm(false);
+            setDeleteConfirmData(null);
+          }}
+        />
+      )}
+
+      {showAssignToGroup && assignToGroupData && (
+        <AssignToGroupModal
+          userId={assignToGroupData.userId}
+          userName={assignToGroupData.userName}
+          tenantId={assignToGroupData.tenantId}
+          currentGroupIds={assignToGroupData.currentGroupIds}
+          onClose={() => {
+            setShowAssignToGroup(false);
+            setAssignToGroupData(null);
+          }}
+          onSuccess={() => {
+            refetch();
+            setShowAssignToGroup(false);
+            setAssignToGroupData(null);
+          }}
+        />
+      )}
+
+      {showInviteUser && inviteUserData && (
+        <InviteUserModal
+          tenantId={inviteUserData.tenantId}
+          tenantName={inviteUserData.tenantName}
+          onClose={() => {
+            setShowInviteUser(false);
+            setInviteUserData(null);
+          }}
+          onSuccess={() => {
+            refetch();
+            setShowInviteUser(false);
+            setInviteUserData(null);
+          }}
+        />
+      )}
     </div>
   );
 }

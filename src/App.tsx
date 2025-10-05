@@ -58,8 +58,9 @@ function App() {
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/tenant/setup" element={<TenantSetup />} />
                 <Route path="/groups" element={<GroupsManager />} />
-                <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/admin" element={<Navigate to="/admin/tree" replace />} />
                 <Route path="/admin/tree" element={<AdminTreeView />} />
+                <Route path="/admin/legacy" element={<AdminDashboard />} />
                 <Route path="/test-ux" element={<UXTestComponent />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
