@@ -967,21 +967,3 @@ function TreeNodeComponent({
   );
 }
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-function getAllNodeIds(nodes: TreeNode[]): string[] {
-  const ids: string[] = [];
-  
-  function traverse(node: TreeNode) {
-    ids.push(node.id);
-    if (node.children) {
-      node.children.forEach(traverse);
-    }
-  }
-  
-  nodes.forEach(traverse);
-  return ids;
-}
-
