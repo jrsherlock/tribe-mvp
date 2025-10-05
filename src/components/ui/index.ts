@@ -1,4 +1,4 @@
-// Therapeutic UI Components for Sangha
+// Therapeutic UI Components for Tribe
 // Export all reusable UI components
 
 export { Button } from './Button';

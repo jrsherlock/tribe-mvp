@@ -149,7 +149,7 @@ Deno.serve(async (req: Request) => {
             subject,
           },
         ],
-        from: { email: fromEmail, name: tenant?.name ?? "Sangha" },
+        from: { email: fromEmail, name: tenant?.name ?? "Tribe" },
         content: [
           { type: "text/plain", value: plainText },
         ],

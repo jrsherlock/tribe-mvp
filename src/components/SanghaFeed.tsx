@@ -365,9 +365,9 @@ const SanghaFeed: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-center space-y-4"
         >
-          <h1 className="text-3xl font-bold text-primary-800">Sangha Feed</h1>
+          <h1 className="text-3xl font-bold text-primary-800">Tribe Feed</h1>
           <p className="text-primary-700">
-            {filterMode === 'today' ? "Today's check-ins from your community" : "See how your community is doing"}
+            {filterMode === 'today' ? "Today's check-ins from your tribe" : "See how your tribe is doing"}
           </p>
 
           {/* Filter Toggle */}
@@ -409,9 +409,9 @@ const SanghaFeed: React.FC = () => {
                   <CheckCircle className="w-6 h-6 text-success-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-success-800">Welcome to the Sangha Feed!</h3>
+                  <h3 className="font-semibold text-success-800">Welcome to the Tribe Feed!</h3>
                   <p className="text-sm text-success-700">
-                    Your check-in has been shared with the community. See how others are doing on their recovery journey.
+                    Your check-in has been shared with your tribe. See how others are doing on their recovery journey.
                   </p>
                 </div>
               </div>

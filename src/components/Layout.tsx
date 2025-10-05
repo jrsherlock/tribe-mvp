@@ -13,7 +13,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { name: 'Dashboard', href: '/', icon: Home, color: 'ocean' },
     { name: 'Profile', href: '/profile', icon: User, color: 'ocean' },
     { name: 'Check-in', href: '/checkin', icon: PlusCircle, color: 'ocean' },
-    { name: 'Sangha Feed', href: '/sangha', icon: Users, color: 'ocean' },
+    { name: 'Tribe Feed', href: '/sangha', icon: Users, color: 'ocean' },
     { name: 'Photo Albums', href: '/albums', icon: Camera, color: 'ocean' },
     { name: 'Analytics', href: '/analytics', icon: BarChart3, color: 'ocean' },
   ];

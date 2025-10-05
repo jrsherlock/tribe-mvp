@@ -241,7 +241,7 @@ const DailyCheckin: React.FC = () => {
     };
 
     fetchTodayCheckin();
-  }, [user]);
+  }, [user, currentTenantId]);
 
   useEffect(() => {
     let mounted = true
@@ -342,9 +342,15 @@ const DailyCheckin: React.FC = () => {
       const today = new Date().toISOString();
 
       const id = existingCheckin?.id || existingCheckin?._id
+
+      // Ensure tenant_id is either a valid UUID string or null (never "null" string)
+      const tenantId = currentTenantId && currentTenantId !== 'null' && currentTenantId !== 'undefined'
+        ? currentTenantId
+        : null;
+
       const checkinPayload = {
         id,
-        tenant_id: currentTenantId || null,
+        tenant_id: tenantId,
         user_id: user.userId,
         checkin_date: today.split('T')[0],
         mental_rating: checkinData.mental_rating,
@@ -373,7 +379,7 @@ const DailyCheckin: React.FC = () => {
       if (saveErr) throw saveErr
 
       // If sharing to groups: reset shares and insert selected
-      if (!checkinData.is_private && saved?.id && currentTenantId) {
+      if (!checkinData.is_private && saved?.id && tenantId) {
         // remove previous shares (if any)
         await supabase.from('checkin_group_shares').delete().eq('checkin_id', saved.id)
         if (selectedGroupIds.length > 0) {
@@ -406,7 +412,7 @@ const DailyCheckin: React.FC = () => {
         }
       );
 
-      // Navigate to Sangha Feed after successful submission
+      // Navigate to Tribe Feed after successful submission
       setTimeout(() => {
         navigate('/sangha', {
           state: {

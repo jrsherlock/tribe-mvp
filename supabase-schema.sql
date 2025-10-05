@@ -243,8 +243,10 @@ ON CONFLICT (user_id) DO NOTHING;
 
 
 
--- Memberships table (a user can belong to many tenants)
-CREATE TABLE IF NOT EXISTS memberships (
+-- Tenant Members table (a user can belong to exactly ONE tenant)
+-- Note: Previously named 'memberships' but renamed to 'tenant_members' for clarity
+-- The unique index on user_id enforces single-tenant-per-user constraint
+CREATE TABLE IF NOT EXISTS tenant_members (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'MEMBER',
@@ -320,7 +322,27 @@ CREATE INDEX IF NOT EXISTS idx_checkin_group_shares_group ON checkin_group_share
 
 -- Enforce the business rule: users can only be tied to zero or one tenant
 -- (previously allowed many; now enforce a single membership per user)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_memberships_single_tenant ON memberships(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_members_single_tenant ON tenant_members(user_id);
+
+-- =============================================
+-- USER INVITATIONS
+-- =============================================
+
+-- Invites table for user invitation system
+CREATE TABLE IF NOT EXISTS invites (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'MEMBER',
+  token TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- Index for fast token lookup
+CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
+CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_invites_tenant ON invites(tenant_id);
 
 -- Trigger: auto-create a "Default Group" when a new tenant is created
 CREATE OR REPLACE FUNCTION create_default_group()

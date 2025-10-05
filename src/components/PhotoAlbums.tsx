@@ -10,7 +10,7 @@ import { uploadPhoto, deletePhotos } from '../lib/services/storage'
 import toast from 'react-hot-toast'
 
 interface Album {
-  _id?: string
+  id?: string
   user_id: string
   title: string
   description: string
@@ -22,7 +22,7 @@ interface Album {
 }
 
 interface Photo {
-  _id?: string
+  id?: string
   user_id: string
   album_id: string
   photo_url: string
@@ -46,8 +46,12 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
   const [photos, setPhotos] = useState<Photo[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [showCreateAlbum, setShowCreateAlbum] = useState(false)
   const [showPhotoUpload, setShowPhotoUpload] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  const [isDragging, setIsDragging] = useState(false)
   const [newAlbum, setNewAlbum] = useState({
     title: '',
     description: '',
@@ -62,9 +66,65 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
   useEffect(() => {
     if (selectedAlbum) {
-      fetchPhotos(selectedAlbum._id!)
+      fetchPhotos(selectedAlbum.id!)
     }
   }, [selectedAlbum])
+
+  // Cleanup preview URLs when component unmounts or files change
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [previewUrls])
+
+  const handleFileSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    const fileArray = Array.from(files).filter(file => file.type.startsWith('image/'))
+
+    if (fileArray.length === 0) {
+      toast.error('Please select valid image files')
+      return
+    }
+
+    // Create preview URLs
+    const urls = fileArray.map(file => URL.createObjectURL(file))
+    setSelectedFiles(fileArray)
+    setPreviewUrls(urls)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    handleFileSelect(e.dataTransfer.files)
+  }
+
+  const removeSelectedFile = (index: number) => {
+    const newFiles = selectedFiles.filter((_, i) => i !== index)
+    const newUrls = previewUrls.filter((_, i) => i !== index)
+
+    // Revoke the removed URL
+    URL.revokeObjectURL(previewUrls[index])
+
+    setSelectedFiles(newFiles)
+    setPreviewUrls(newUrls)
+  }
+
+  const clearSelectedFiles = () => {
+    previewUrls.forEach(url => URL.revokeObjectURL(url))
+    setSelectedFiles([])
+    setPreviewUrls([])
+  }
 
   const fetchAlbums = async () => {
     if (!targetUserId) return
@@ -126,59 +186,81 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
     try {
       setUploading(true)
+      setUploadProgress(0)
+
       // Upload to Supabase Storage and insert records
       const inserted: any[] = []
+      const errors: string[] = []
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
-        const path = `${currentTenantId || 'solo'}/${user.userId}/${albumId}/${Date.now()}-${i}-${file.name}`
-        const publicUrl = await uploadPhoto(file, path)
-        const { data: photoRow, error } = await supabase.from('album_photos').insert({
-          tenant_id: currentTenantId || null,
-          user_id: user.userId,
-          album_id: albumId,
-          photo_url: publicUrl,
-          caption: '',
-          is_public: selectedAlbum?.is_public || false,
-          file_size: file.size,
-          file_type: file.type,
-          created_at: new Date().toISOString()
-        }).select().single()
-        if (error) throw error
-        inserted.push(photoRow)
-      }
-      setPhotos(prev => [...inserted as any[], ...prev])
+        try {
+          const path = `${currentTenantId || 'solo'}/${user.userId}/${albumId}/${Date.now()}-${i}-${file.name}`
+          const publicUrl = await uploadPhoto(file, path)
+          const { data: photoRow, error } = await supabase.from('album_photos').insert({
+            tenant_id: currentTenantId || null,
+            user_id: user.userId,
+            album_id: albumId,
+            photo_url: publicUrl,
+            caption: '',
+            is_public: selectedAlbum?.is_public || false,
+            file_size: file.size,
+            file_type: file.type,
+            created_at: new Date().toISOString()
+          }).select().single()
+          if (error) throw error
+          inserted.push(photoRow)
 
-      // Update album photo count and cover photo if needed
-      const updatedCount = (selectedAlbum?.photo_count || 0) + inserted.length
-      const updateData: any = {
-        photo_count: updatedCount,
-        updated_at: new Date().toISOString()
-      }
-
-      if (!selectedAlbum?.cover_photo_url && inserted[0]) {
-        updateData.cover_photo_url = (inserted[0] as any).photo_url
+          // Update progress
+          setUploadProgress(Math.round(((i + 1) / files.length) * 100))
+        } catch (err) {
+          console.error(`Failed to upload ${file.name}:`, err)
+          errors.push(file.name)
+        }
       }
 
-      await svcUpdateAlbum(albumId, updateData)
-      
-      // Update local state
-      setAlbums(prev => prev.map(album => 
-        album._id === albumId 
-          ? { ...album, ...updateData }
-          : album
-      ))
+      if (inserted.length > 0) {
+        setPhotos(prev => [...inserted as any[], ...prev])
 
-      if (selectedAlbum) {
-        setSelectedAlbum(prev => prev ? { ...prev, ...updateData } : null)
+        // Update album photo count and cover photo if needed
+        const updatedCount = (selectedAlbum?.photo_count || 0) + inserted.length
+        const updateData: any = {
+          photo_count: updatedCount,
+          updated_at: new Date().toISOString()
+        }
+
+        if (!selectedAlbum?.cover_photo_url && inserted[0]) {
+          updateData.cover_photo_url = (inserted[0] as any).photo_url
+        }
+
+        await svcUpdateAlbum(albumId, updateData)
+
+        // Update local state
+        setAlbums(prev => prev.map(album =>
+          album.id === albumId
+            ? { ...album, ...updateData }
+            : album
+        ))
+
+        if (selectedAlbum) {
+          setSelectedAlbum(prev => prev ? { ...prev, ...updateData } : null)
+        }
+
+        toast.success(`${inserted.length} photo${inserted.length > 1 ? 's' : ''} uploaded successfully! 🎉`)
       }
 
-      toast.success(`${successfulUploads.length} photos uploaded successfully! 🎉`)
+      if (errors.length > 0) {
+        toast.error(`Failed to upload ${errors.length} photo${errors.length > 1 ? 's' : ''}`)
+      }
+
+      clearSelectedFiles()
       setShowPhotoUpload(false)
     } catch (error) {
       console.error('Failed to upload photos:', error)
       toast.error('Failed to upload photos')
     } finally {
       setUploading(false)
+      setUploadProgress(0)
     }
   }
 
@@ -194,17 +276,17 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
         }).filter(Boolean)
         if (paths.length) await deletePhotos(paths)
         for (const photo of albumPhotos as any[]) {
-          if (photo.id || photo._id) {
-            await supabase.from('album_photos').delete().eq('id', photo.id || photo._id)
+          if (photo.id) {
+            await supabase.from('album_photos').delete().eq('id', photo.id)
           }
         }
       }
 
       // Delete the album
       await svcDeleteAlbum(albumId)
-      setAlbums(prev => prev.filter(album => album._id !== albumId))
-      
-      if (selectedAlbum?._id === albumId) {
+      setAlbums(prev => prev.filter(album => album.id !== albumId))
+
+      if (selectedAlbum?.id === albumId) {
         setSelectedAlbum(null)
         setPhotos([])
       }
@@ -247,7 +329,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {albums.map((album) => (
             <motion.div
-              key={album._id}
+              key={album.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-secondary rounded-2xl overflow-hidden shadow-lg border border-primary-200 cursor-pointer hover:shadow-xl transition-shadow"
@@ -282,7 +364,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        deleteAlbum(album._id!)
+                        deleteAlbum(album.id!)
                       }}
                       className="text-red-500 hover:text-red-700"
                     >
@@ -338,7 +420,7 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {photos.map((photo) => (
               <motion.div
-                key={photo._id}
+                key={photo.id}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="aspect-square bg-primary-100 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow"
@@ -456,50 +538,150 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setShowPhotoUpload(false)}
+            onClick={() => {
+              if (!uploading) {
+                clearSelectedFiles()
+                setShowPhotoUpload(false)
+              }
+            }}
           >
             <motion.div
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.9 }}
-              className="bg-secondary rounded-2xl p-6 w-full max-w-md"
+              className="bg-secondary rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-primary-800">Upload Photos</h3>
                 <button
-                  onClick={() => setShowPhotoUpload(false)}
-                  className="text-primary-500 hover:text-primary-700"
+                  onClick={() => {
+                    if (!uploading) {
+                      clearSelectedFiles()
+                      setShowPhotoUpload(false)
+                    }
+                  }}
+                  disabled={uploading}
+                  className="text-primary-500 hover:text-primary-700 disabled:opacity-50"
                 >
                   <X size={20} />
                 </button>
               </div>
 
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-primary-300 rounded-xl p-8 text-center">
+                {/* Drag and Drop Zone */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                    isDragging
+                      ? 'border-accent-500 bg-accent-50'
+                      : 'border-primary-300 bg-primary-50'
+                  }`}
+                >
                   <input
                     type="file"
                     multiple
                     accept="image/*"
-                    onChange={(e) => {
-                      if (e.target.files && selectedAlbum?._id) {
-                        uploadPhotos(Array.from(e.target.files), selectedAlbum._id)
-                      }
-                    }}
+                    onChange={(e) => handleFileSelect(e.target.files)}
                     className="hidden"
                     id="photo-upload"
+                    disabled={uploading}
                   />
-                  <label htmlFor="photo-upload" className="cursor-pointer">
-                    <Upload className="w-12 h-12 text-primary-400 mx-auto mb-4" />
-                    <p className="text-primary-600 font-medium mb-2">Choose photos to upload</p>
-                    <p className="text-sm text-primary-500">Select multiple images at once</p>
+                  <label htmlFor="photo-upload" className={uploading ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                    <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragging ? 'text-accent-500' : 'text-primary-400'}`} />
+                    <p className="text-primary-600 font-medium mb-2">
+                      {isDragging ? 'Drop photos here' : 'Drag & drop photos or click to browse'}
+                    </p>
+                    <p className="text-sm text-primary-500">
+                      Support for multiple images • JPG, PNG, GIF, WebP
+                    </p>
                   </label>
                 </div>
 
+                {/* Photo Previews */}
+                {selectedFiles.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <p className="text-sm font-medium text-primary-700">
+                        {selectedFiles.length} photo{selectedFiles.length > 1 ? 's' : ''} selected
+                      </p>
+                      {!uploading && (
+                        <button
+                          onClick={clearSelectedFiles}
+                          className="text-sm text-red-500 hover:text-red-700"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto">
+                      {previewUrls.map((url, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={url}
+                            alt={`Preview ${index + 1}`}
+                            className="w-full aspect-square object-cover rounded-lg"
+                          />
+                          {!uploading && (
+                            <button
+                              onClick={() => removeSelectedFile(index)}
+                              className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs p-1 rounded-b-lg truncate">
+                            {selectedFiles[index].name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload Progress */}
                 {uploading && (
-                  <div className="text-center py-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary-200 border-t-accent mx-auto mb-2"></div>
-                    <p className="text-primary-600">Uploading photos...</p>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-primary-600">Uploading...</span>
+                      <span className="text-primary-700 font-medium">{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full bg-primary-200 rounded-full h-2 overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${uploadProgress}%` }}
+                        className="h-full bg-accent-600 rounded-full"
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                {selectedFiles.length > 0 && !uploading && (
+                  <div className="flex space-x-3 pt-4">
+                    <button
+                      onClick={() => {
+                        if (selectedAlbum?.id) {
+                          uploadPhotos(selectedFiles, selectedAlbum.id)
+                        }
+                      }}
+                      className="flex-1 py-3 bg-accent-600 text-white rounded-xl hover:bg-accent-700 transition-colors font-medium"
+                    >
+                      Upload {selectedFiles.length} Photo{selectedFiles.length > 1 ? 's' : ''}
+                    </button>
+                    <button
+                      onClick={() => {
+                        clearSelectedFiles()
+                        setShowPhotoUpload(false)
+                      }}
+                      className="flex-1 py-3 bg-primary-200 text-primary-700 rounded-xl hover:bg-primary-300 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 )}
               </div>

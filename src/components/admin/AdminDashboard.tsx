@@ -5,7 +5,9 @@ import { useUserRole } from '../../hooks/useUserRole'
 import { supabase } from '../../lib/supabase'
 import { listGroups, createGroup, deleteGroup, listGroupMembers, adminAddUserToGroup, adminUpdateGroupMembershipRole, type Group, type GroupMembership } from '../../lib/services/groups'
 import { listTenants, createTenantRPC, updateTenant, deleteTenant, listMembershipsByTenant, upsertMembership, updateMembershipRole, deleteMembership, type Tenant, type Membership } from '../../lib/services/tenants'
-import { Shield, Lock, AlertCircle } from 'lucide-react'
+import { getUserProfiles, getTenantUsers, type UserProfile } from '../../lib/services/users'
+import { InviteUserModal } from './InviteUserModal'
+import { Shield, Lock, AlertCircle, UserPlus, Mail } from 'lucide-react'
 
 const Tab = {
   Facilities: 'Facilities',
@@ -42,6 +44,12 @@ const AdminDashboard: React.FC = () => {
   // Memberships
   const [memberships, setMemberships] = useState<Membership[]>([])
   const [newMember, setNewMember] = useState<{ user_id: string; role: Membership['role'] }>({ user_id: '', role: 'MEMBER' })
+
+  // User profiles for displaying names/emails
+  const [userProfiles, setUserProfiles] = useState<Record<string, UserProfile>>({})
+
+  // Invite modal
+  const [showInviteModal, setShowInviteModal] = useState(false)
 
   // Check if user has admin access
   const hasAdminAccess = isSuperUser || isFacilityAdmin
@@ -87,6 +95,19 @@ const AdminDashboard: React.FC = () => {
       ])
       setMemberships(mems ?? [])
       setGroups(grps ?? [])
+
+      // Load user profiles for memberships
+      if (mems && mems.length > 0) {
+        const userIds = mems.map(m => m.user_id)
+        const { data: profiles } = await getUserProfiles(userIds)
+        if (profiles) {
+          const profileMap: Record<string, UserProfile> = {}
+          profiles.forEach(p => {
+            profileMap[p.user_id] = p
+          })
+          setUserProfiles(profileMap)
+        }
+      }
     }
     loadTenantData()
   }, [selectedTenantId])
@@ -346,42 +367,118 @@ const AdminDashboard: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="font-semibold">Facility Members</div>
-            <select className="border px-2 py-1 rounded" value={selectedTenantId ?? ''} onChange={(e)=>setSelectedTenantId(e.target.value || null)}>
-              <option value="">Select facility</option>
-              {tenants.map(t=> (<option key={t.id} value={t.id}>{t.name}</option>))}
-            </select>
-          </div>
-          <div className="grid gap-2">
-            {memberships.map(m => (
-              <div key={`${m.user_id}-${m.tenant_id}`} className="border rounded p-2 flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded ${roleBadge(m.role)}`}>{m.role}</span>
-                  <span className="font-mono">{m.user_id}</span>
-                </div>
-                <div className="flex gap-2">
-                  <button className="px-2 py-0.5 border rounded" onClick={()=>onUpdateMemberRole(m, m.role==='ADMIN'?'MEMBER':'ADMIN')}>{m.role==='ADMIN'?'Make Member':'Make Admin'}</button>
-                  <button className="px-2 py-0.5 border rounded" onClick={()=>onUpdateMemberRole(m, 'OWNER')}>Make Owner</button>
-                  <button className="px-2 py-0.5 border rounded text-red-600" onClick={()=>onRemoveMember(m)}>Remove</button>
-                </div>
-              </div>
-            ))}
+            <div className="flex gap-2 items-center">
+              <select className="border px-2 py-1 rounded" value={selectedTenantId ?? ''} onChange={(e)=>setSelectedTenantId(e.target.value || null)}>
+                <option value="">Select facility</option>
+                {tenants.map(t=> (<option key={t.id} value={t.id}>{t.name}</option>))}
+              </select>
+              {selectedTenantId && (
+                <button
+                  onClick={() => setShowInviteModal(true)}
+                  className="flex items-center gap-2 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Invite User
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Add to tenant */}
-          <div className="border p-3 rounded">
-            <div className="font-semibold mb-2">Add user to facility</div>
-            <div className="flex gap-2">
-              <input className="border px-2 py-1 rounded flex-1" placeholder="User ID" value={newMember.user_id} onChange={e=>setNewMember(prev=>({...prev,user_id:e.target.value}))} />
-              <select className="border px-2 py-1 rounded" value={newMember.role} onChange={e=>setNewMember(prev=>({...prev,role:e.target.value as Membership['role']}))}>
-                <option value="MEMBER">MEMBER</option>
-                <option value="ADMIN">ADMIN</option>
-                <option value="OWNER">OWNER</option>
-              </select>
-              <button className="px-3 py-1 bg-black text-white rounded" disabled={!selectedTenantId || !newMember.user_id.trim()} onClick={onAddMemberToTenant}>Add</button>
+          {memberships.length === 0 && selectedTenantId && (
+            <div className="text-center py-8 text-gray-500">
+              <Mail className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+              <p>No members yet. Invite users to get started.</p>
             </div>
-            <div className="text-xs text-sand-600 mt-1">Tip: For now, enter a user_id. We can add email lookup later.</div>
+          )}
+
+          <div className="grid gap-2">
+            {memberships.map(m => {
+              const profile = userProfiles[m.user_id]
+              return (
+                <div key={`${m.user_id}-${m.tenant_id}`} className="border rounded p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {profile?.avatar_url ? (
+                      <img src={profile.avatar_url} alt="" className="w-10 h-10 rounded-full" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
+                        {profile?.display_name?.[0]?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <div>
+                      <div className="font-medium">{profile?.display_name || 'Unknown User'}</div>
+                      <div className="text-sm text-gray-600">{profile?.email || m.user_id}</div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${roleBadge(m.role)}`}>{m.role}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
+                      onClick={()=>onUpdateMemberRole(m, m.role==='ADMIN'?'MEMBER':'ADMIN')}
+                    >
+                      {m.role==='ADMIN'?'Make Member':'Make Admin'}
+                    </button>
+                    {isSuperUser && (
+                      <button
+                        className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
+                        onClick={()=>onUpdateMemberRole(m, 'OWNER')}
+                      >
+                        Make Owner
+                      </button>
+                    )}
+                    <button
+                      className="px-3 py-1 border border-red-300 rounded text-sm text-red-600 hover:bg-red-50"
+                      onClick={()=>onRemoveMember(m)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
+
+          {/* Legacy: Add by user ID (keep for now) */}
+          {isSuperUser && (
+            <div className="border p-3 rounded bg-gray-50">
+              <div className="font-semibold mb-2 text-sm text-gray-700">Advanced: Add by User ID</div>
+              <div className="flex gap-2">
+                <input className="border px-2 py-1 rounded flex-1 text-sm" placeholder="User ID" value={newMember.user_id} onChange={e=>setNewMember(prev=>({...prev,user_id:e.target.value}))} />
+                <select className="border px-2 py-1 rounded text-sm" value={newMember.role} onChange={e=>setNewMember(prev=>({...prev,role:e.target.value as Membership['role']}))}>
+                  <option value="MEMBER">MEMBER</option>
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="OWNER">OWNER</option>
+                </select>
+                <button className="px-3 py-1 bg-gray-700 text-white rounded text-sm" disabled={!selectedTenantId || !newMember.user_id.trim()} onClick={onAddMemberToTenant}>Add</button>
+              </div>
+              <div className="text-xs text-gray-500 mt-1">For existing users only. Use "Invite User" button above for new users.</div>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Invite User Modal */}
+      {showInviteModal && selectedTenantId && (
+        <InviteUserModal
+          tenantId={selectedTenantId}
+          tenantName={tenants.find(t => t.id === selectedTenantId)?.name || 'Facility'}
+          onClose={() => setShowInviteModal(false)}
+          onSuccess={async () => {
+            // Reload memberships after successful invite
+            const { data: mems } = await listMembershipsByTenant(selectedTenantId)
+            setMemberships(mems ?? [])
+            if (mems && mems.length > 0) {
+              const userIds = mems.map(m => m.user_id)
+              const { data: profiles } = await getUserProfiles(userIds)
+              if (profiles) {
+                const profileMap: Record<string, UserProfile> = {}
+                profiles.forEach(p => {
+                  profileMap[p.user_id] = p
+                })
+                setUserProfiles(profileMap)
+              }
+            }
+          }}
+        />
       )}
     </div>
   )

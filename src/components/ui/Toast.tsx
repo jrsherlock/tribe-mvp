@@ -110,9 +110,9 @@ export const getToastStyles = (type: 'success' | 'error' | 'info' | 'warning') =
 export const therapeuticToasts = {
   checkinSuccess: (isPrivate: boolean, isUpdate: boolean) => ({
     title: `Check-in ${isUpdate ? 'updated' : 'completed'} successfully!`,
-    message: isPrivate 
-      ? '🔒 Kept private for your personal tracking' 
-      : '🌟 Shared with the Sangha community for support',
+    message: isPrivate
+      ? '🔒 Kept private for your personal tracking'
+      : '🌟 Shared with your Tribe for support',
     type: 'success' as const,
     duration: 4000
   }),
@@ -132,8 +132,8 @@ export const therapeuticToasts = {
   }),
 
   welcomeToFeed: () => ({
-    title: 'Welcome to the Sangha Feed!',
-    message: 'Your check-in has been shared with the community',
+    title: 'Welcome to the Tribe Feed!',
+    message: 'Your check-in has been shared with your tribe',
     type: 'success' as const,
     duration: 3000
   }),

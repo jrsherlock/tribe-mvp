@@ -60,7 +60,7 @@ const UXTestComponent: React.FC = () => {
         message: 'Test navigation from UX test component - this should show a welcome message!'
       }
     });
-    addTestResult('Navigation to Sangha Feed with state message');
+    addTestResult('Navigation to Tribe Feed with state message');
   };
 
   const testLoadingToast = () => {
@@ -185,7 +185,7 @@ const UXTestComponent: React.FC = () => {
               <ul className="text-sm text-success-700 space-y-1">
                 <li>• Enhanced toast notifications with therapeutic styling</li>
                 <li>• Loading states during submission process</li>
-                <li>• Automatic navigation to Sangha Feed after success</li>
+                <li>• Automatic navigation to Tribe Feed after success</li>
                 <li>• Comprehensive error handling with user-friendly messages</li>
               </ul>
             </div>
@@ -193,7 +193,7 @@ const UXTestComponent: React.FC = () => {
             <div className="bg-success-50 border border-success-200 rounded-lg p-4">
               <h3 className="font-semibold text-success-800 mb-2">✅ Issue 2: Anonymous Check-ins Fixed</h3>
               <ul className="text-sm text-success-700 space-y-1">
-                <li>• Updated SanghaFeed to fetch profiles for all check-in authors</li>
+                <li>• Updated Tribe Feed to fetch profiles for all check-in authors</li>
                 <li>• Fixed profile fetching logic to show usernames instead of "Anonymous"</li>
                 <li>• Added fallback profile fetching for better reliability</li>
                 <li>• Improved user experience with proper name display</li>

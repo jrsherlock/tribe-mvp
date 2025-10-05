@@ -1,16 +1,26 @@
 import React from 'react'
-import { useAuth } from '../hooks/useAuth'
+import { useAuth, clearAuthStorage } from '../hooks/useAuth'
 import { motion } from 'framer-motion'
-import {Shield, Users, TrendingUp, Heart, CheckCircle, Star, ArrowRight, Lock, Award} from 'lucide-react'
+import {Shield, Users, TrendingUp, Heart, CheckCircle, Star, ArrowRight, Lock, Award, RefreshCw} from 'lucide-react'
+import { DevUserImpersonation } from './DevUserImpersonation'
 
 const Welcome: React.FC = () => {
   const { signIn } = useAuth()
+  const isDev = import.meta.env.DEV
 
   const handleSignIn = async () => {
     try {
       await signIn()
     } catch (error) {
       console.error('Sign in failed:', error)
+    }
+  }
+
+  const handleResetAuth = () => {
+    if (confirm('This will clear all authentication data and reload the page. This can help if you\'re stuck on a loading screen. Continue?')) {
+      console.log('[Welcome] Manual auth reset')
+      clearAuthStorage()
+      window.location.reload()
     }
   }
 
@@ -291,9 +301,23 @@ const Welcome: React.FC = () => {
             <div className="text-sm text-secondary-500 mt-4">
               Free to join • No credit card required • HIPAA compliant
             </div>
+
+            {/* Debug: Reset Auth Button (only in dev) */}
+            {isDev && (
+              <button
+                onClick={handleResetAuth}
+                className="mt-6 text-xs text-red-600 hover:text-red-700 underline flex items-center space-x-1 mx-auto"
+              >
+                <RefreshCw size={12} />
+                <span>Reset Auth (Debug)</span>
+              </button>
+            )}
           </motion.div>
         </div>
       </div>
+
+      {/* Development User Impersonation Tool */}
+      <DevUserImpersonation />
     </div>
   )
 }

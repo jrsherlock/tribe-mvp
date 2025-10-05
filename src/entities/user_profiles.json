@@ -48,7 +48,7 @@
           },
           "is_public": {
             "bsonType": "bool",
-            "description": "Whether profile is public in Sangha feed"
+            "description": "Whether profile is public in Tribe feed"
           },
           "created_at": {
             "bsonType": "string",

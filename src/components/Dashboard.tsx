@@ -21,6 +21,7 @@ interface CheckinGroupShare { checkin_id: string; group_id: string }
 
 interface RecentCheckin {
   _id: string;
+  user_id: string;
   mental_rating: number;
   emotional_rating: number;
   physical_rating: number;
@@ -28,6 +29,8 @@ interface RecentCheckin {
   spiritual_rating: number;
   mood_emoji: string;
   created_at: string;
+  user_name?: string;
+  user_avatar_url?: string;
 }
 
 interface TribeCheckin {
@@ -50,7 +53,7 @@ interface TribeCheckin {
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const { currentTenantId } = useTenant();
-  const { role, isSuperUser, isFacilityAdmin, canCreateFacilities, loading: roleLoading } = useUserRole(currentTenantId);
+  const { role, isSuperUser, isFacilityAdmin, canCreateFacilities } = useUserRole(currentTenantId);
   const { streak, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
   const [recentCheckins, setRecentCheckins] = useState<RecentCheckin[]>([]);
   const [todayCheckin, setTodayCheckin] = useState<RecentCheckin | null>(null);
@@ -65,20 +68,96 @@ const Dashboard: React.FC = () => {
       try {
         setLoading(true);
 
-        // Fetch recent check-ins
+        // Get today's date in Central Time Zone
+        const getCentralTimeToday = () => {
+          const now = new Date();
+          const centralTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+          return centralTime.toISOString().split('T')[0];
+        };
+        const today = getCentralTimeToday();
+
+        // Check if current user has today's check-in
         let q1 = supabase.from('daily_checkins').select('*').eq('user_id', user.userId)
         if (currentTenantId) q1 = q1.eq('tenant_id', currentTenantId); else q1 = q1.is('tenant_id', null)
-        const { data: checkins, error: e1 } = await q1.order('created_at', { ascending: false }).limit(7)
+        const { data: myCheckins, error: e1 } = await q1.gte('checkin_date', today).lte('checkin_date', today).limit(1)
         if (e1) throw e1
 
-        if (checkins && checkins.length > 0) {
-          setRecentCheckins((checkins ?? []) as unknown as RecentCheckin[]);
-
-          // Check if today's check-in exists
-          const today = new Date().toISOString().split('T')[0];
-          const todayCheck = ((checkins ?? []) as unknown as RecentCheckin[])
-            .find((c) => (c.created_at as string).split('T')[0] === today) || null;
+        if (myCheckins && myCheckins.length > 0) {
+          const todayCheck = myCheckins[0] as unknown as RecentCheckin;
           setTodayCheckin(todayCheck);
+        } else {
+          setTodayCheckin(null);
+        }
+
+        // Fetch today's check-ins from users in shared groups
+        if (currentTenantId) {
+          const { data: mems } = await listMembershipsByUser(user.userId)
+          const groupMems = (mems ?? []) as GroupMembershipRow[]
+          const myGroupIds: string[] = groupMems.map(m => m.group_id)
+
+          let todayGroupCheckins: Checkin[] = []
+          if (myGroupIds.length > 0) {
+            // Get all users in my groups
+            const { data: groupMemberRows, error: eGroupMembers } = await supabase
+              .from('group_memberships')
+              .select('user_id')
+              .in('group_id', myGroupIds)
+              .neq('user_id', user.userId)
+            if (eGroupMembers) throw eGroupMembers
+
+            const groupUserIds = [...new Set((groupMemberRows ?? []).map((r: { user_id: string }) => r.user_id))]
+
+            if (groupUserIds.length > 0) {
+              // Fetch today's check-ins from these users
+              const { data: rows, error: e2 } = await supabase
+                .from('daily_checkins')
+                .select('*')
+                .eq('tenant_id', currentTenantId)
+                .eq('is_private', false)
+                .in('user_id', groupUserIds)
+                .gte('checkin_date', today)
+                .lte('checkin_date', today)
+                .order('created_at', { ascending: false })
+                .limit(20)
+              if (e2) throw e2
+              todayGroupCheckins = (rows ?? []) as Checkin[]
+            }
+          }
+
+          if (todayGroupCheckins && todayGroupCheckins.length > 0) {
+            const userIds = [...new Set(todayGroupCheckins.map(checkin => checkin.user_id))];
+            const { data: profiles } = await listProfilesByUserIds(userIds)
+            const profileMap = new Map<string, UserProfile>();
+            if (profiles) {
+              (profiles as UserProfile[]).forEach((profile) => {
+                profileMap.set(profile.user_id, profile);
+              });
+            }
+
+            const enrichedCheckins: RecentCheckin[] = (todayGroupCheckins as Checkin[]).map((checkin: Checkin) => {
+              const profile = profileMap.get(checkin.user_id);
+              const id = checkin.id as string | undefined;
+              return {
+                _id: id ?? `${checkin.user_id}-${checkin.created_at}`,
+                user_id: checkin.user_id,
+                mental_rating: checkin.mental_rating,
+                emotional_rating: checkin.emotional_rating,
+                physical_rating: checkin.physical_rating,
+                social_rating: checkin.social_rating,
+                spiritual_rating: checkin.spiritual_rating,
+                mood_emoji: checkin.mood_emoji,
+                created_at: checkin.created_at as string,
+                user_name: profile?.display_name || 'Anonymous',
+                user_avatar_url: profile?.avatar_url || ''
+              } as RecentCheckin;
+            });
+
+            setRecentCheckins(enrichedCheckins);
+          } else {
+            setRecentCheckins([]);
+          }
+        } else {
+          setRecentCheckins([]);
         }
 
         // Fetch tribe check-ins for today
@@ -508,7 +587,7 @@ const Dashboard: React.FC = () => {
                 <Users className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h3 className="text-2xl font-bold text-secondary-800">Sangha Community</h3>
+                <h3 className="text-2xl font-bold text-secondary-800">Tribe Community</h3>
                 <p className="text-secondary-600">Connect and support each other</p>
               </div>
             </div>
@@ -532,8 +611,7 @@ const Dashboard: React.FC = () => {
           </motion.div>
         </div>
 
-        {/* Recent Check-ins */}
-        {recentCheckins.length > 0 &&
+        {/* Today's Check-ins from Group Members */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -542,37 +620,75 @@ const Dashboard: React.FC = () => {
 
             <div className="flex items-center space-x-3 mb-6">
               <Calendar className="w-6 h-6 text-primary-600" />
-              <h3 className="text-2xl font-bold text-secondary-800">Recent Check-ins</h3>
+              <h3 className="text-2xl font-bold text-secondary-800">Today's Check-ins</h3>
               <Zap className="w-5 h-5 text-warning-500 animate-bounce-gentle" />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
-              {recentCheckins.slice(0, 7).map((checkin) => {
-              const rating = getAverageRating(checkin);
-              const colorClass = rating >= 8 ? 'bg-success-600 hover:bg-success-700' :
-              rating >= 6 ? 'bg-warning-600 hover:bg-warning-700' : 'bg-accent-600 hover:bg-accent-700';
+            {recentCheckins.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {recentCheckins.map((checkin) => {
+                  const rating = getAverageRating(checkin);
+                  const colorClass = rating >= 8 ? 'bg-success-600 hover:bg-success-700' :
+                    rating >= 6 ? 'bg-warning-600 hover:bg-warning-700' : 'bg-accent-600 hover:bg-accent-700';
 
-              return (
-                <div
-                  key={checkin._id}
-                  className={`${colorClass} rounded-2xl p-4 text-center text-white shadow-lg hover:shadow-xl transition-all duration-300 hover-lift`}>
+                  return (
+                    <div
+                      key={checkin._id}
+                      className={`${colorClass} rounded-2xl p-5 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover-lift`}>
 
-                    <div className="text-2xl mb-2">{checkin.mood_emoji}</div>
-                    <div className="text-lg font-bold mb-1">
-                      {rating}/10
+                      {/* User Info Section */}
+                      <div className="flex items-center space-x-3 mb-4">
+                        {/* Avatar */}
+                        {checkin.user_avatar_url ? (
+                          <img
+                            src={checkin.user_avatar_url}
+                            alt={checkin.user_name || 'User'}
+                            className="w-12 h-12 rounded-full border-2 border-white shadow-md object-cover"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full border-2 border-white shadow-md bg-white/30 flex items-center justify-center">
+                            <span className="text-white font-bold text-lg">
+                              {(checkin.user_name || 'A').charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* User Name */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate drop-shadow-sm">
+                            {checkin.user_name || 'Anonymous'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Mood Emoji - Larger and centered */}
+                      <div className="text-center mb-3">
+                        <div className="text-4xl mb-2">{checkin.mood_emoji}</div>
+                      </div>
+
+                      {/* Rating */}
+                      <div className="text-center">
+                        <div className="text-2xl font-bold mb-1">
+                          {rating}/10
+                        </div>
+                        <div className="text-xs text-white/90 drop-shadow-sm">
+                          wellbeing score
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs text-white drop-shadow-sm">
-                      {new Date(checkin.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric'
-                    })}
-                    </div>
-                  </div>);
-
-            })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <Calendar className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
+                <p className="text-secondary-600 text-lg font-medium mb-2">No check-ins yet today</p>
+                <p className="text-secondary-500 text-sm">
+                  Check-ins from your group members will appear here
+                </p>
+              </div>
+            )}
           </motion.div>
-        }
 
         {/* Motivational Quote */}
         <motion.div
