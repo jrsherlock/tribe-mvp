@@ -3,7 +3,7 @@
  * Hierarchical navigation for multi-tenant administration
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useAdminTreeData } from '@/hooks/useAdminTreeData';
@@ -28,6 +28,31 @@ import { deleteGroup } from '@/lib/services/groups';
 import { supabase } from '@/lib/supabase';
 import toast from 'react-hot-toast';
 
+// Helper functions
+function getAllNodeIds(nodes: TreeNode[]): string[] {
+  const ids: string[] = [];
+  const traverse = (node: TreeNode) => {
+    ids.push(node.id);
+    if (node.children) {
+      node.children.forEach(traverse);
+    }
+  };
+  nodes.forEach(traverse);
+  return ids;
+}
+
+function flattenTree(nodes: TreeNode[]): TreeNode[] {
+  const flat: TreeNode[] = [];
+  const traverse = (node: TreeNode) => {
+    flat.push(node);
+    if (node.children) {
+      node.children.forEach(traverse);
+    }
+  };
+  nodes.forEach(traverse);
+  return flat;
+}
+
 export function AdminTreeView() {
   const { user } = useAuth();
   const { role, isSuperUser, isFacilityAdmin, isGroupAdmin } = useUserRole(user?.tenant_id || null);
@@ -50,8 +75,13 @@ export function AdminTreeView() {
 
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
+    // Load expanded state from localStorage
+    const saved = localStorage.getItem('admin-tree-expanded-nodes');
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
   const [selectedNode, setSelectedNode] = useState<TreeNode | null>(null);
+  const [filteredNodes, setFilteredNodes] = useState<TreeNode[]>([]);
 
   // Modal state
   const [showCreateFacility, setShowCreateFacility] = useState(false);
@@ -67,6 +97,132 @@ export function AdminTreeView() {
   const [deleteConfirmData, setDeleteConfirmData] = useState<Omit<DeleteConfirmationProps, 'onConfirm' | 'onCancel'> | null>(null);
   const [assignToGroupData, setAssignToGroupData] = useState<{ userId: string; userName: string; tenantId: string; currentGroupIds: string[] } | null>(null);
   const [inviteUserData, setInviteUserData] = useState<{ tenantId: string; tenantName: string } | null>(null);
+
+  // Save expanded state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('admin-tree-expanded-nodes', JSON.stringify(Array.from(expandedNodes)));
+  }, [expandedNodes]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedNode) return;
+
+      // Don't interfere with input fields
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          // Navigate to next node
+          const flatNodes = flattenTree(filteredNodes);
+          const currentIndex = flatNodes.findIndex(n => n.id === selectedNode.id);
+          if (currentIndex < flatNodes.length - 1) {
+            setSelectedNode(flatNodes[currentIndex + 1]);
+          }
+          break;
+
+        case 'ArrowUp':
+          e.preventDefault();
+          // Navigate to previous node
+          const flatNodesUp = flattenTree(filteredNodes);
+          const currentIndexUp = flatNodesUp.findIndex(n => n.id === selectedNode.id);
+          if (currentIndexUp > 0) {
+            setSelectedNode(flatNodesUp[currentIndexUp - 1]);
+          }
+          break;
+
+        case 'ArrowRight':
+          e.preventDefault();
+          // Expand node if it has children
+          if (selectedNode.children && selectedNode.children.length > 0) {
+            setExpandedNodes(prev => new Set([...prev, selectedNode.id]));
+          }
+          break;
+
+        case 'ArrowLeft':
+          e.preventDefault();
+          // Collapse node if expanded
+          if (expandedNodes.has(selectedNode.id)) {
+            setExpandedNodes(prev => {
+              const next = new Set(prev);
+              next.delete(selectedNode.id);
+              return next;
+            });
+          }
+          break;
+
+        case 'Enter':
+        case ' ':
+          e.preventDefault();
+          // Toggle expand/collapse
+          toggleExpand(selectedNode.id);
+          break;
+
+        case 'Escape':
+          e.preventDefault();
+          // Clear selection
+          setSelectedNode(null);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNode, filteredNodes, expandedNodes]);
+
+  // Search and filter logic
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredNodes(treeNodes);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const matchingNodes: TreeNode[] = [];
+    const nodesToExpand = new Set<string>();
+
+    const searchNode = (node: TreeNode, parentMatches: boolean = false): boolean => {
+      const labelMatches = node.label.toLowerCase().includes(query);
+
+      // Check metadata for additional matches
+      let metadataMatches = false;
+      if (node.type === 'tenant') {
+        metadataMatches = node.tenantData.slug.toLowerCase().includes(query);
+      } else if (node.type === 'user') {
+        metadataMatches = node.userData.email.toLowerCase().includes(query);
+      }
+
+      const nodeMatches = labelMatches || metadataMatches;
+
+      // Recursively search children
+      let childMatches = false;
+      if (node.children && node.children.length > 0) {
+        for (const child of node.children) {
+          if (searchNode(child, nodeMatches || parentMatches)) {
+            childMatches = true;
+            nodesToExpand.add(node.id); // Expand parent if child matches
+          }
+        }
+      }
+
+      const shouldInclude = nodeMatches || childMatches || parentMatches;
+
+      if (shouldInclude && !matchingNodes.find(n => n.id === node.id)) {
+        matchingNodes.push(node);
+      }
+
+      return shouldInclude;
+    };
+
+    treeNodes.forEach(node => searchNode(node));
+    setFilteredNodes(matchingNodes);
+
+    // Auto-expand nodes that have matching children
+    setExpandedNodes(prev => new Set([...prev, ...nodesToExpand]));
+  }, [searchQuery, treeNodes]);
 
   // Handle expand/collapse
   const toggleExpand = (nodeId: string) => {
@@ -286,14 +442,24 @@ export function AdminTreeView() {
 
         {/* Tree Container */}
         <div className="flex-1 overflow-y-auto p-4">
-          {treeNodes.length === 0 ? (
+          {filteredNodes.length === 0 ? (
             <div className="text-center py-12">
               <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No data available</p>
+              <p className="text-gray-600">
+                {searchQuery ? `No results for "${searchQuery}"` : 'No data available'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-1">
-              {treeNodes.map(node => (
+              {filteredNodes.map(node => (
                 <TreeNodeComponent
                   key={node.id}
                   node={node}
@@ -304,6 +470,7 @@ export function AdminTreeView() {
                   onSelect={() => setSelectedNode(node)}
                   expandedNodes={expandedNodes}
                   onToggleChild={toggleExpand}
+                  searchQuery={searchQuery}
                 />
               ))}
             </div>
@@ -672,6 +839,7 @@ interface TreeNodeComponentProps {
   onSelect: () => void;
   expandedNodes: Set<string>;
   onToggleChild: (nodeId: string) => void;
+  searchQuery?: string;
 }
 
 function TreeNodeComponent({
@@ -682,7 +850,8 @@ function TreeNodeComponent({
   onToggleExpand,
   onSelect,
   expandedNodes,
-  onToggleChild
+  onToggleChild,
+  searchQuery = ''
 }: TreeNodeComponentProps) {
   const hasChildren = node.children && node.children.length > 0;
   const indent = level * 24;
@@ -692,6 +861,25 @@ function TreeNodeComponent({
     if (node.type === 'group') return <Users className="w-4 h-4" />;
     if (node.type === 'user') return <User className="w-4 h-4" />;
     return <AlertTriangle className="w-4 h-4" />;
+  };
+
+  const highlightText = (text: string, query: string) => {
+    if (!query.trim()) return text;
+
+    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.toLowerCase() === query.toLowerCase() ? (
+            <mark key={i} className="bg-yellow-200 text-gray-900 rounded px-0.5">
+              {part}
+            </mark>
+          ) : (
+            <span key={i}>{part}</span>
+          )
+        )}
+      </>
+    );
   };
 
   return (
@@ -722,9 +910,9 @@ function TreeNodeComponent({
         {!hasChildren && <div className="w-5" />}
         
         <div className="text-gray-600">{getIcon()}</div>
-        
+
         <span className="flex-1 text-sm font-medium text-gray-900">
-          {node.label}
+          {highlightText(node.label, searchQuery)}
         </span>
 
         {/* Badges and indicators */}
@@ -770,6 +958,7 @@ function TreeNodeComponent({
               onSelect={() => {}}
               expandedNodes={expandedNodes}
               onToggleChild={onToggleChild}
+              searchQuery={searchQuery}
             />
           ))}
         </div>
