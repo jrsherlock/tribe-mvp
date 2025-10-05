@@ -34,14 +34,33 @@ export function useUserRole(tenantId?: string | null) {
       setLoading(true)
       setError(null)
 
-      // If no tenantId provided, user is a Basic User
-      if (!tenantId) {
-        setRole('BASIC_USER')
-        setLoading(false)
-        return
-      }
-
       try {
+        // ALWAYS check SuperUser status first, regardless of tenantId
+        const { data: isSuperUserData, error: superUserError } = await supabase
+          .from('superusers')
+          .select('user_id')
+          .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+          .maybeSingle()
+
+        if (superUserError && superUserError.code !== 'PGRST116') {
+          throw superUserError
+        }
+
+        // If user is a SuperUser, return that role immediately
+        if (isSuperUserData) {
+          setRole('SUPERUSER')
+          setLoading(false)
+          return
+        }
+
+        // If no tenantId provided and not a SuperUser, user is a Basic User
+        if (!tenantId) {
+          setRole('BASIC_USER')
+          setLoading(false)
+          return
+        }
+
+        // Get user's role in the specified tenant
         const { data, error: rpcError } = await supabase.rpc('get_user_tenant_role', {
           p_tenant_id: tenantId
         })
@@ -144,6 +163,25 @@ export function useGroupAdmin(groupId?: string | null) {
       }
 
       try {
+        // Check if user is a SuperUser first (SuperUsers are admins of all groups)
+        const { data: isSuperUserData, error: superUserError } = await supabase
+          .from('superusers')
+          .select('user_id')
+          .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+          .maybeSingle()
+
+        if (superUserError && superUserError.code !== 'PGRST116') {
+          throw superUserError
+        }
+
+        // If user is a SuperUser, they have admin access to all groups
+        if (isSuperUserData) {
+          setIsGroupAdmin(true)
+          setLoading(false)
+          return
+        }
+
+        // Otherwise, check if user is a group admin via RPC
         const { data, error: rpcError } = await supabase.rpc('is_group_admin', {
           p_group_id: groupId
         })
@@ -220,6 +258,25 @@ export function useGroupRole(groupId?: string | null) {
       }
 
       try {
+        // Check if user is a SuperUser first
+        const { data: isSuperUserData, error: superUserError } = await supabase
+          .from('superusers')
+          .select('user_id')
+          .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+          .maybeSingle()
+
+        if (superUserError && superUserError.code !== 'PGRST116') {
+          throw superUserError
+        }
+
+        // If user is a SuperUser, return that role
+        if (isSuperUserData) {
+          setGroupRole('SUPERUSER')
+          setLoading(false)
+          return
+        }
+
+        // Otherwise, get user's role in the specified group
         const { data, error: rpcError } = await supabase.rpc('get_user_group_role', {
           p_group_id: groupId
         })
