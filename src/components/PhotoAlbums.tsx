@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {Camera, Plus, Upload, Lock, Globe, Image, X, Edit3, Trash2, Eye} from 'lucide-react'
+import {Camera, Plus, Upload, Lock, Globe, Image, X, Edit3, Trash2, Eye, Star, Check} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useTenant } from '../lib/tenant'
 import { supabase } from '../lib/supabase'
-import { listAlbums as svcListAlbums, listPhotos as svcListPhotos, createAlbum as svcCreateAlbum, updateAlbum as svcUpdateAlbum, deleteAlbum as svcDeleteAlbum } from '../lib/services/albums'
+import { listAlbums as svcListAlbums, listPhotos as svcListPhotos, createAlbum as svcCreateAlbum, updateAlbum as svcUpdateAlbum, deleteAlbum as svcDeleteAlbum, setCoverPhoto, deletePhoto } from '../lib/services/albums'
 import { uploadPhoto, deletePhotos } from '../lib/services/storage'
 import toast from 'react-hot-toast'
+import ImageLightbox from './ImageLightbox'
 
 interface Album {
   id?: string
@@ -28,6 +29,7 @@ interface Photo {
   photo_url: string
   caption: string
   is_public: boolean
+  is_cover_photo?: boolean
   file_size: number
   file_type: string
   created_at: string
@@ -52,6 +54,8 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
   const [newAlbum, setNewAlbum] = useState({
     title: '',
     description: '',
@@ -298,6 +302,99 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
     }
   }
 
+  const handleSetCoverPhoto = async (photoId: string, albumId: string) => {
+    if (!isOwnProfile) return
+
+    try {
+      const { error } = await setCoverPhoto(photoId, albumId)
+      if (error) throw error
+
+      // Update local state
+      setPhotos(prev => prev.map(p => ({
+        ...p,
+        is_cover_photo: p.id === photoId
+      })))
+
+      // Update album's cover_photo_url in local state
+      const photo = photos.find(p => p.id === photoId)
+      if (photo) {
+        setAlbums(prev => prev.map(a =>
+          a.id === albumId ? { ...a, cover_photo_url: photo.photo_url } : a
+        ))
+        if (selectedAlbum?.id === albumId) {
+          setSelectedAlbum(prev => prev ? { ...prev, cover_photo_url: photo.photo_url } : null)
+        }
+      }
+
+      toast.success('Cover photo updated! ⭐')
+    } catch (error) {
+      console.error('Failed to set cover photo:', error)
+      toast.error('Failed to set cover photo')
+    }
+  }
+
+  const handleDeletePhoto = async (photoId: string, photoUrl: string) => {
+    if (!isOwnProfile) return
+
+    // Confirmation dialog
+    if (!window.confirm('Are you sure you want to delete this photo? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      // Extract storage path from URL
+      const path = (() => {
+        try {
+          return new URL(photoUrl).pathname.split('/object/public/photos/')[1]
+        } catch {
+          return ''
+        }
+      })()
+
+      // Delete from database first (RLS will handle authorization)
+      const { error: dbError } = await deletePhoto(photoId)
+      if (dbError) throw dbError
+
+      // Delete from storage if path was extracted
+      if (path) {
+        await deletePhotos([path])
+      }
+
+      // Update local state - remove photo from list
+      setPhotos(prev => prev.filter(p => p.id !== photoId))
+
+      // If lightbox is open and we deleted the current photo, adjust index
+      if (lightboxOpen) {
+        const currentPhotoIndex = photos.findIndex(p => p.id === photoId)
+        if (currentPhotoIndex === lightboxIndex) {
+          // If it's the last photo, close lightbox
+          if (photos.length === 1) {
+            setLightboxOpen(false)
+          } else if (currentPhotoIndex === photos.length - 1) {
+            // If it's the last photo in the array, go to previous
+            setLightboxIndex(currentPhotoIndex - 1)
+          }
+          // Otherwise, stay at same index (which will show next photo)
+        } else if (currentPhotoIndex < lightboxIndex) {
+          // If we deleted a photo before the current one, adjust index
+          setLightboxIndex(lightboxIndex - 1)
+        }
+      }
+
+      toast.success('Photo deleted successfully')
+    } catch (error: any) {
+      console.error('Failed to delete photo:', error)
+      toast.error(error.message || 'Failed to delete photo')
+    }
+  }
+
+  const handleDeletePhotoByIndex = (index: number) => {
+    const photo = photos[index]
+    if (photo?.id && photo?.photo_url) {
+      handleDeletePhoto(photo.id, photo.photo_url)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -418,18 +515,65 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
 
           {/* Photos Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {photos.map((photo) => (
+            {photos.map((photo, index) => (
               <motion.div
                 key={photo.id}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="aspect-square bg-primary-100 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow"
+                className="aspect-square bg-primary-100 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow relative group"
               >
-                <img 
-                  src={photo.photo_url} 
+                <img
+                  src={photo.photo_url}
                   alt={photo.caption}
                   className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                  onClick={() => {
+                    setLightboxIndex(index)
+                    setLightboxOpen(true)
+                  }}
                 />
+
+                {/* Cover Photo Badge */}
+                {photo.is_cover_photo && (
+                  <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-lg">
+                    <Star className="w-3 h-3 fill-current" />
+                    Cover
+                  </div>
+                )}
+
+                {/* Action Buttons (only for own profile) */}
+                {isOwnProfile && (
+                  <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Delete Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (photo.id && photo.photo_url) {
+                          handleDeletePhoto(photo.id, photo.photo_url)
+                        }
+                      }}
+                      className="bg-red-500/90 hover:bg-red-600 text-white p-1.5 rounded-lg shadow-lg transition-colors"
+                      title="Delete photo"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Set as Cover Button */}
+                    {!photo.is_cover_photo && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (photo.id && selectedAlbum?.id) {
+                            handleSetCoverPhoto(photo.id, selectedAlbum.id)
+                          }
+                        }}
+                        className="bg-white/90 hover:bg-white text-gray-700 px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 shadow-lg"
+                      >
+                        <Star className="w-3 h-3" />
+                        Set as Cover
+                      </button>
+                    )}
+                  </div>
+                )}
               </motion.div>
             ))}
           </div>
@@ -689,6 +833,21 @@ const PhotoAlbums: React.FC<PhotoAlbumsProps> = ({ isOwnProfile = true, userId }
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        images={photos.map(photo => ({
+          src: photo.photo_url,
+          alt: photo.caption || 'Photo',
+          caption: photo.caption
+        }))}
+        open={lightboxOpen}
+        index={lightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+        onIndexChange={setLightboxIndex}
+        onDelete={isOwnProfile ? handleDeletePhotoByIndex : undefined}
+        canDelete={isOwnProfile}
+      />
     </div>
   )
 }
