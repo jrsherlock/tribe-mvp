@@ -5,6 +5,7 @@ export type Membership = { user_id: string; tenant_id: string; role: 'OWNER'|'AD
 
 type TenantContextType = {
   currentTenantId: string | null
+  currentTenantName: string | null
   setCurrentTenantId: (id: string | null) => void
   memberships: Membership[]
   loading: boolean
@@ -12,6 +13,7 @@ type TenantContextType = {
 
 const TenantContext = createContext<TenantContextType>({
   currentTenantId: null,
+  currentTenantName: null,
   setCurrentTenantId: () => {},
   memberships: [],
   loading: true,
@@ -19,6 +21,7 @@ const TenantContext = createContext<TenantContextType>({
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [currentTenantId, setCurrentTenantId] = useState<string | null>(null)
+  const [currentTenantName, setCurrentTenantName] = useState<string | null>(null)
   const [memberships, setMemberships] = useState<Membership[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -31,7 +34,12 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       setLoading(true)
       const { data: sessionRes } = await supabase.auth.getSession()
       if (!sessionRes.session) {
-        if (isMounted) { setMemberships([]); setCurrentTenantId(null); setLoading(false) }
+        if (isMounted) {
+          setMemberships([])
+          setCurrentTenantId(null)
+          setCurrentTenantName(null)
+          setLoading(false)
+        }
         inFlight = false
         return
       }
@@ -47,10 +55,23 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         })
         setMemberships([])
         setCurrentTenantId(null)
+        setCurrentTenantName(null)
       } else {
         setMemberships((data ?? []) as Membership[])
         // auto-select first membership if exactly one
-        if ((data ?? []).length === 1) setCurrentTenantId((data![0] as any).tenant_id)
+        if ((data ?? []).length === 1) {
+          const tenantId = (data![0] as any).tenant_id
+          setCurrentTenantId(tenantId)
+          // Fetch tenant name
+          const { data: tenantData } = await supabase
+            .from('tenants')
+            .select('name')
+            .eq('id', tenantId)
+            .single()
+          if (tenantData && isMounted) {
+            setCurrentTenantName(tenantData.name)
+          }
+        }
       }
       setLoading(false)
       inFlight = false
@@ -60,7 +81,25 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     return () => { isMounted = false; sub.subscription.unsubscribe() }
   }, [])
 
-  const value = useMemo(() => ({ currentTenantId, setCurrentTenantId, memberships, loading }), [currentTenantId, memberships, loading])
+  // Fetch tenant name when currentTenantId changes
+  useEffect(() => {
+    if (currentTenantId) {
+      supabase
+        .from('tenants')
+        .select('name')
+        .eq('id', currentTenantId)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setCurrentTenantName(data.name)
+          }
+        })
+    } else {
+      setCurrentTenantName(null)
+    }
+  }, [currentTenantId])
+
+  const value = useMemo(() => ({ currentTenantId, currentTenantName, setCurrentTenantId, memberships, loading }), [currentTenantId, currentTenantName, memberships, loading])
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>
 }
 

@@ -1,17 +1,44 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useTenant } from '../lib/tenant';
+import { useUserStreaks } from '../hooks/useUserStreaks';
 import { getTodayForUser, upsert as upsertCheckin } from '../lib/services/checkins';
+import { getCentralTimeToday } from '../lib/utils/timezone';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, Lock, Globe, Plus, X, Heart, Smile, Brain, HeartHandshake, Activity, Users, Sparkles, CheckCircle, AlertCircle, Wand2 } from 'lucide-react';
+import { Save, Lock, Globe, Plus, X, Heart, Smile, Brain, HeartHandshake, Activity, Users, Sparkles, Wand2 } from 'lucide-react';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import toast from 'react-hot-toast';
 import { ToastContent, getToastStyles, therapeuticToasts } from './ui/Toast';
 import { supabase } from '../lib/supabase';
 import { listGroups, listMembershipsByUser, type Group } from '../lib/services/groups';
 
+interface ExistingCheckin {
+  id: string;
+  user_id: string;
+  tenant_id: string | null;
+  mental_rating: number;
+  emotional_rating: number;
+  physical_rating: number;
+  social_rating: number;
+  spiritual_rating: number;
+  mental_notes: string;
+  emotional_notes: string;
+  physical_notes: string;
+  social_notes: string;
+  spiritual_notes: string;
+  mental_emojis: string[];
+  emotional_emojis: string[];
+  physical_emojis: string[];
+  social_emojis: string[];
+  spiritual_emojis: string[];
+  gratitude: string[];
+  is_private: boolean;
+  mood_emoji: string;
+  created_at: string;
+  updated_at: string;
+}
 
 interface CheckinData {
   mental_rating: number;
@@ -37,6 +64,7 @@ interface CheckinData {
 const DailyCheckin: React.FC = () => {
   const { user } = useAuth();
   const { currentTenantId } = useTenant();
+  const { recordCheckIn } = useUserStreaks();
   const navigate = useNavigate();
   const [checkinData, setCheckinData] = useState<CheckinData>({
     mental_rating: 5,
@@ -62,7 +90,7 @@ const DailyCheckin: React.FC = () => {
   const [availableGroups, setAvailableGroups] = useState<Group[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
-  const [existingCheckin, setExistingCheckin] = useState<any>(null);
+  const [existingCheckin, setExistingCheckin] = useState<ExistingCheckin | null>(null);
   const [loading, setLoading] = useState(false);
   const [newGratitude, setNewGratitude] = useState('');
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
@@ -73,35 +101,35 @@ const DailyCheckin: React.FC = () => {
   const mepssCategories = [
   {
     key: 'mental',
-    label: 'Mental',
+    label: 'Mentally',
     color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Clarity, focus, mental health',
     icon: Brain
   },
   {
     key: 'emotional',
-    label: 'Emotional',
+    label: 'Emotionally',
     color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Feelings, mood, emotional wellbeing',
     icon: HeartHandshake
   },
   {
     key: 'physical',
-    label: 'Physical',
+    label: 'Physically',
     color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Energy, health, physical condition',
     icon: Activity
   },
   {
     key: 'social',
-    label: 'Social',
+    label: 'Socially',
     color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Relationships, connections, community',
     icon: Users
   },
   {
     key: 'spiritual',
-    label: 'Spiritual',
+    label: 'Spiritually',
     color: 'from-ocean-600 to-ocean-700', // Consistent ocean blue - calm and stable
     description: 'Purpose, meaning, inner peace',
     icon: Sparkles
@@ -141,11 +169,12 @@ const DailyCheckin: React.FC = () => {
       "Spent time in meditation this morning and felt a deep sense of peace. My spiritual practice is becoming the foundation of my recovery.",
       "Feeling grateful for the opportunity to start over. Surrendering control has been challenging but liberating. Finding purpose beyond my addiction.",
       "Connected with my higher power through nature today. A simple walk reminded me I'm part of something bigger. Spirituality doesn't have to be complicated.",
-      "Struggling with faith today but showing up anyway. My spiritual journey isn't linear and that's okay. Progress happens even in the valleys.",
+      "Meh",
       "Feeling aligned with my values for the first time in years. Living with integrity brings a peace I never found in substances. This is what freedom feels like."
     ],
     gratitude: [
       "My sobriety and the clarity it brings",
+      "For Higher Power Hank and Mitch Meh",
       "My sponsor who answers the phone at any hour",
       "The support of my recovery community",
       "Another day clean and the chance to heal",
@@ -209,7 +238,7 @@ const DailyCheckin: React.FC = () => {
 
       try {
         const { data: rows } = await getTodayForUser(user.userId, currentTenantId || null)
-        const checkins = rows ? rows : [] as any[];
+        const checkins = rows ? rows : [] as ExistingCheckin[];
 
         if (checkins && checkins.length > 0) {
           const existing = checkins[0];
@@ -253,15 +282,22 @@ const DailyCheckin: React.FC = () => {
           listMembershipsByUser(user.userId)
         ])
         if (!mounted) return
-        const mySet = new Set((memRows ?? []).map((r: any) => r.group_id))
-        const mine = (groupRows ?? []).filter((g: any) => mySet.has(g.id))
-        setAvailableGroups(mine as any)
+        const mySet = new Set((memRows ?? []).map((r) => r.group_id))
+        const mine = (groupRows ?? []).filter((g) => mySet.has(g.id))
+        setAvailableGroups(mine)
         if (existingCheckin?.id) {
+          // Editing existing check-in: load its current shares
           const { data: shares } = await supabase
             .from('checkin_group_shares')
             .select('group_id')
             .eq('checkin_id', existingCheckin.id)
-          if (mounted && shares) setSelectedGroupIds(shares.map((s: any) => s.group_id))
+          if (mounted && shares) setSelectedGroupIds(shares.map((s) => s.group_id))
+        } else {
+          // NEW CHECK-IN: Auto-select all groups by default
+          // This ensures check-ins are shared with the user's groups automatically
+          if (mounted && mine.length > 0) {
+            setSelectedGroupIds(mine.map(g => g.id))
+          }
         }
       } catch (e) {
         console.error('Failed to load groups', e)
@@ -328,7 +364,15 @@ const DailyCheckin: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!user) return;
+    console.log('[DailyCheckin] handleSubmit called');
+
+    if (!user) {
+      console.error('[DailyCheckin] No user found, cannot submit');
+      toast.error('Please sign in to submit your check-in');
+      return;
+    }
+
+    console.log('[DailyCheckin] User authenticated, proceeding with submission');
 
     // Show loading toast with therapeutic styling
     const loadingConfig = therapeuticToasts.loadingCheckin(!!existingCheckin);
@@ -339,9 +383,13 @@ const DailyCheckin: React.FC = () => {
 
     try {
       setLoading(true);
-      const today = new Date().toISOString();
+      console.log('[DailyCheckin] Loading state set to true');
 
-      const id = existingCheckin?.id || existingCheckin?._id
+      // Use Central Time for check-in date to match Dashboard query logic
+      // This prevents timezone mismatches where Dashboard shows "Ready" but submission fails
+      const today = getCentralTimeToday();
+
+      const id = existingCheckin?.id
 
       // Ensure tenant_id is either a valid UUID string or null (never "null" string)
       const tenantId = currentTenantId && currentTenantId !== 'null' && currentTenantId !== 'undefined'
@@ -352,7 +400,7 @@ const DailyCheckin: React.FC = () => {
         id,
         tenant_id: tenantId,
         user_id: user.userId,
-        checkin_date: today.split('T')[0],
+        checkin_date: today,
         mental_rating: checkinData.mental_rating,
         emotional_rating: checkinData.emotional_rating,
         physical_rating: checkinData.physical_rating,
@@ -371,23 +419,38 @@ const DailyCheckin: React.FC = () => {
         gratitude: checkinData.gratitude.filter((g) => g.trim()),
         is_private: checkinData.is_private,
         mood_emoji: checkinData.mood_emoji,
-        created_at: today,
-        updated_at: today,
-      } as any;
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
+      console.log('[DailyCheckin] Upserting check-in to database...');
       const { data: saved, error: saveErr } = await upsertCheckin(checkinPayload);
-      if (saveErr) throw saveErr
+      if (saveErr) {
+        console.error('[DailyCheckin] Error saving check-in:', saveErr);
+        throw saveErr;
+      }
+      console.log('[DailyCheckin] Check-in saved successfully:', saved);
 
       // If sharing to groups: reset shares and insert selected
       if (!checkinData.is_private && saved?.id && tenantId) {
+        console.log('[DailyCheckin] Sharing check-in to groups:', selectedGroupIds);
         // remove previous shares (if any)
         await supabase.from('checkin_group_shares').delete().eq('checkin_id', saved.id)
         if (selectedGroupIds.length > 0) {
           const rows = selectedGroupIds.map(gid => ({ checkin_id: saved.id as string, group_id: gid }))
           const { error: shareErr } = await supabase.from('checkin_group_shares').insert(rows)
-          if (shareErr) throw shareErr
+          if (shareErr) {
+            console.error('[DailyCheckin] Error sharing to groups:', shareErr);
+            throw shareErr;
+          }
+          console.log('[DailyCheckin] Check-in shared to groups successfully');
         }
       }
+
+      // Record check-in activity for streak tracking
+      console.log('[DailyCheckin] Recording check-in activity for streak tracking...');
+      await recordCheckIn();
+      console.log('[DailyCheckin] Streak activity recorded');
 
       // Dismiss loading toast
       toast.dismiss(loadingToast);
@@ -399,7 +462,7 @@ const DailyCheckin: React.FC = () => {
       );
 
       toast.success(
-        (t) => (
+        () => (
           <ToastContent
             type={successConfig.type}
             title={successConfig.title}
@@ -413,8 +476,10 @@ const DailyCheckin: React.FC = () => {
       );
 
       // Navigate to Tribe Feed after successful submission
+      console.log('[DailyCheckin] Scheduling navigation to /mytribe in 1.5 seconds...');
       setTimeout(() => {
-        navigate('/sangha', {
+        console.log('[DailyCheckin] Navigating to /mytribe now');
+        navigate('/mytribe', {
           state: {
             message: checkinData.is_private
               ? 'Check-in saved privately'
@@ -424,7 +489,7 @@ const DailyCheckin: React.FC = () => {
       }, 1500); // Small delay to let user see the success message
 
     } catch (error) {
-      console.error('Failed to save check-in:', error);
+      console.error('[DailyCheckin] Failed to save check-in:', error);
 
       // Dismiss loading toast
       toast.dismiss(loadingToast);
@@ -432,7 +497,7 @@ const DailyCheckin: React.FC = () => {
       // Show therapeutic error toast
       const errorConfig = therapeuticToasts.checkinError();
       toast.error(
-        (t) => (
+        () => (
           <ToastContent
             type={errorConfig.type}
             title={errorConfig.title}
@@ -446,6 +511,7 @@ const DailyCheckin: React.FC = () => {
       );
     } finally {
       setLoading(false);
+      console.log('[DailyCheckin] Loading state set to false, handleSubmit complete');
     }
   };
 
@@ -601,7 +667,7 @@ const DailyCheckin: React.FC = () => {
                 type="range"
                 min="1"
                 max="10"
-                value={checkinData[`${category.key}_rating` as keyof CheckinData]}
+                value={checkinData[`${category.key}_rating` as keyof CheckinData] as number}
                 onChange={(e) => handleRatingChange(category.key, parseInt(e.target.value))}
                 className={`w-full h-2 rounded-lg appearance-none cursor-pointer bg-gradient-to-r ${category.color}`} />
 
@@ -617,7 +683,7 @@ const DailyCheckin: React.FC = () => {
               <div className="flex items-start gap-2">
                 <textarea
                   placeholder={`How is your ${category.label.toLowerCase()} wellbeing today? Share your thoughts...`}
-                  value={checkinData[`${category.key}_notes` as keyof CheckinData]}
+                  value={checkinData[`${category.key}_notes` as keyof CheckinData] as string}
                   onChange={(e) => handleNotesChange(category.key, e.target.value)}
                   className="flex-1 p-3 border border-primary-200 rounded-xl focus:ring-2 focus:ring-accent focus:border-transparent resize-none bg-secondary"
                   rows={2} />
@@ -680,7 +746,7 @@ const DailyCheckin: React.FC = () => {
               placeholder="What are you grateful for today?"
               value={newGratitude}
               onChange={(e) => setNewGratitude(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && addGratitude()}
+              onKeyDown={(e) => e.key === 'Enter' && addGratitude()}
               className="flex-1 p-2 border border-sand-200 rounded-lg focus:ring-2 focus:ring-sage-500 focus:border-transparent bg-white text-sand-800 placeholder-sand-500" />
 
             {/* Add Gratitude Button - Fixed contrast */}

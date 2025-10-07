@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useTenant } from '../lib/tenant'
 import { useUserRole } from '../hooks/useUserRole'
 import { listGroups, createGroup, deleteGroup, listMembershipsByUser, joinGroup, leaveGroup, Group } from '../lib/services/groups'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { Shield, Lock } from 'lucide-react'
+import { Shield, Lock, Users } from 'lucide-react'
 
 const GroupsManager: React.FC = () => {
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { currentTenantId } = useTenant()
   const { canCreateGroups, canEditFacility, isSuperUser, role, loading: roleLoading } = useUserRole(currentTenantId)
@@ -241,6 +243,16 @@ const GroupsManager: React.FC = () => {
                   {g.description && <div className="text-sm text-sand-700 mt-1">{g.description}</div>}
                 </div>
                 <div className="flex gap-2">
+                  {/* View Tribe button - only show if user is a member */}
+                  {myGroupIds.has(g.id) && (
+                    <button
+                      onClick={() => navigate(`/tribe/${g.id}`)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-ocean-600 hover:bg-ocean-700 text-white transition-colors"
+                    >
+                      <Users size={18} />
+                      View Tribe
+                    </button>
+                  )}
                   <button
                     onClick={() => handleToggleMembership(g.id)}
                     className={`px-4 py-2 rounded-lg border transition-colors ${

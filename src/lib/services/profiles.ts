@@ -1,8 +1,34 @@
 import { supabase } from '../supabase'
 
+/**
+ * Fetch user profiles by user IDs
+ *
+ * IMPORTANT: Each user has exactly ONE profile (enforced by unique constraint on user_id)
+ * The profile's tenant_id field indicates if they're solo (null) or belong to a facility (uuid)
+ *
+ * @param userIds - Array of user IDs to fetch profiles for
+ * @returns Supabase query result with user profiles
+ */
 export async function listProfilesByUserIds(userIds: string[]) {
-  if (!userIds.length) return { data: [], error: null }
-  return supabase.from('user_profiles').select('*').in('user_id', userIds)
+  if (!userIds.length) {
+    console.log('[listProfilesByUserIds] No user IDs provided')
+    return { data: [], error: null }
+  }
+
+  console.log('[listProfilesByUserIds] Fetching profiles for user IDs:', userIds)
+
+  const result = await supabase
+    .from('user_profiles')
+    .select('*')
+    .in('user_id', userIds)
+
+  console.log('[listProfilesByUserIds] Result:', {
+    count: result.data?.length || 0,
+    error: result.error,
+    profiles: result.data?.map(p => ({ user_id: p.user_id, display_name: p.display_name }))
+  })
+
+  return result
 }
 
 export async function getOwnProfile(userId: string, tenantId: string | null) {

@@ -3,15 +3,18 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useSobrietyStreak } from '../hooks/useSobrietyStreak';
+import { useUserStreaks } from '../hooks/useUserStreaks';
 import { useTenant } from '../lib/tenant';
 import { useUserRole } from '../hooks/useUserRole';
 import { supabase } from '../lib/supabase';
 import { listProfilesByUserIds } from '../lib/services/profiles';
+import { getCentralTimeToday } from '../lib/utils/timezone';
 import { motion, AnimatePresence } from 'framer-motion';
 import { listMembershipsByUser } from '../lib/services/groups';
-import { Calendar, TrendingUp, Users, CheckCircle, Heart, Award, Sparkles, Star, Zap, Shield } from 'lucide-react';
+import { Calendar, Users, CheckCircle, Heart, Sparkles, Star, Zap, Shield, Flame, CalendarDays, Smile, CheckCircle2 } from 'lucide-react';
 import TribeCheckinCard from './TribeCheckinCard';
 import InteractiveCheckinModal from './InteractiveCheckinModal';
+import GamifiedKpiCard from './GamifiedKpiCard';
 import type { Checkin } from '../lib/services/checkins';
 import type { GroupMembership as GroupMembershipRow } from '../lib/services/groups';
 
@@ -54,12 +57,14 @@ const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const { currentTenantId } = useTenant();
   const { role, isSuperUser, isFacilityAdmin, canCreateFacilities } = useUserRole(currentTenantId);
-  const { streak, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
+  const { streak, stats, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
+  const { streaks, isLoading: streaksLoading } = useUserStreaks();
   const [recentCheckins, setRecentCheckins] = useState<RecentCheckin[]>([]);
   const [todayCheckin, setTodayCheckin] = useState<RecentCheckin | null>(null);
   const [loading, setLoading] = useState(true);
   const [tribeCheckins, setTribeCheckins] = useState<TribeCheckin[]>([]);
   const [selectedCheckin, setSelectedCheckin] = useState<TribeCheckin | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -69,12 +74,13 @@ const Dashboard: React.FC = () => {
         setLoading(true);
 
         // Get today's date in Central Time Zone
-        const getCentralTimeToday = () => {
-          const now = new Date();
-          const centralTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-          return centralTime.toISOString().split('T')[0];
-        };
         const today = getCentralTimeToday();
+
+        // Fetch current user's profile for display_name
+        const { data: profileData } = await listProfilesByUserIds([user.userId]);
+        if (profileData && profileData.length > 0) {
+          setUserProfile(profileData[0] as UserProfile);
+        }
 
         // Check if current user has today's check-in
         let q1 = supabase.from('daily_checkins').select('*').eq('user_id', user.userId)
@@ -126,7 +132,15 @@ const Dashboard: React.FC = () => {
 
           if (todayGroupCheckins && todayGroupCheckins.length > 0) {
             const userIds = [...new Set(todayGroupCheckins.map(checkin => checkin.user_id))];
-            const { data: profiles } = await listProfilesByUserIds(userIds)
+            console.log('[Dashboard] Fetching profiles for today group check-ins, user IDs:', userIds)
+
+            const { data: profiles, error: profileError } = await listProfilesByUserIds(userIds)
+            console.log('[Dashboard] Profiles result:', {
+              count: profiles?.length || 0,
+              error: profileError,
+              profiles: profiles?.map(p => ({ user_id: p.user_id, display_name: p.display_name }))
+            })
+
             const profileMap = new Map<string, UserProfile>();
             if (profiles) {
               (profiles as UserProfile[]).forEach((profile) => {
@@ -136,6 +150,12 @@ const Dashboard: React.FC = () => {
 
             const enrichedCheckins: RecentCheckin[] = (todayGroupCheckins as Checkin[]).map((checkin: Checkin) => {
               const profile = profileMap.get(checkin.user_id);
+              console.log('[Dashboard] Enriching checkin:', {
+                user_id: checkin.user_id,
+                profile_found: !!profile,
+                display_name: profile?.display_name || 'Anonymous'
+              })
+
               const id = checkin.id as string | undefined;
               return {
                 _id: id ?? `${checkin.user_id}-${checkin.created_at}`,
@@ -151,6 +171,11 @@ const Dashboard: React.FC = () => {
                 user_avatar_url: profile?.avatar_url || ''
               } as RecentCheckin;
             });
+
+            console.log('[Dashboard] Enriched check-ins:', enrichedCheckins.map(c => ({
+              user_id: c.user_id,
+              user_name: c.user_name
+            })))
 
             setRecentCheckins(enrichedCheckins);
           } else {
@@ -184,7 +209,8 @@ const Dashboard: React.FC = () => {
                 .eq('is_private', false)
                 .neq('user_id', user.userId)
                 .in('id', checkinIds)
-                .gte('created_at', `${today}T00:00:00.000Z`).lt('created_at', `${today}T23:59:59.999Z`)
+                .gte('checkin_date', today)
+                .lte('checkin_date', today)
                 .order('created_at', { ascending: false })
                 .limit(20)
               if (e2) throw e2
@@ -194,7 +220,15 @@ const Dashboard: React.FC = () => {
 
           if (tribeCheckinsList && tribeCheckinsList.length > 0) {
             const userIds = [...new Set(tribeCheckinsList.map(checkin => checkin.user_id))];
-            const { data: profiles } = await listProfilesByUserIds(userIds)
+            console.log('[Dashboard] Fetching profiles for tribe check-ins, user IDs:', userIds)
+
+            const { data: profiles, error: tribeProfileError } = await listProfilesByUserIds(userIds)
+            console.log('[Dashboard] Tribe profiles result:', {
+              count: profiles?.length || 0,
+              error: tribeProfileError,
+              profiles: profiles?.map(p => ({ user_id: p.user_id, display_name: p.display_name }))
+            })
+
             const profileMap = new Map<string, UserProfile>();
             if (profiles) {
               (profiles as UserProfile[]).forEach((profile) => {
@@ -204,6 +238,12 @@ const Dashboard: React.FC = () => {
 
             const enrichedTribeCheckins: TribeCheckin[] = (tribeCheckinsList as Checkin[]).map((checkin: Checkin) => {
               const profile = profileMap.get(checkin.user_id);
+              console.log('[Dashboard] Enriching tribe checkin:', {
+                user_id: checkin.user_id,
+                profile_found: !!profile,
+                display_name: profile?.display_name || 'Anonymous'
+              })
+
               const id = checkin.id as string | undefined;
               return {
                 _id: id ?? `${checkin.user_id}-${checkin.created_at}`,
@@ -226,58 +266,8 @@ const Dashboard: React.FC = () => {
             setTribeCheckins(enrichedTribeCheckins);
           }
         } else {
-          // For testing purposes, add some mock data with proper UUIDs
-          const mockTribeCheckins: TribeCheckin[] = [
-            {
-              _id: '550e8400-e29b-41d4-a716-446655440001',
-              user_id: '550e8400-e29b-41d4-a716-446655440011',
-              user_name: 'Sarah M.',
-              user_avatar_url: '',
-              mental_rating: 8,
-              emotional_rating: 7,
-              physical_rating: 9,
-              social_rating: 6,
-              spiritual_rating: 8,
-              mood_emoji: '😊',
-              grateful_for: ['My morning meditation', 'Supportive friends'],
-              mental_notes: 'Feeling clear and focused today',
-              spiritual_notes: 'Found peace in my morning practice',
-              created_at: new Date().toISOString()
-            },
-            {
-              _id: '550e8400-e29b-41d4-a716-446655440002',
-              user_id: '550e8400-e29b-41d4-a716-446655440012',
-              user_name: 'Alex R.',
-              user_avatar_url: '',
-              mental_rating: 6,
-              emotional_rating: 5,
-              physical_rating: 7,
-              social_rating: 8,
-              spiritual_rating: 6,
-              mood_emoji: '😌',
-              grateful_for: ['Family support', 'A good night\'s sleep'],
-              mental_notes: 'Taking it one day at a time',
-              spiritual_notes: 'Grateful for this journey',
-              created_at: new Date().toISOString()
-            },
-            {
-              _id: '550e8400-e29b-41d4-a716-446655440003',
-              user_id: '550e8400-e29b-41d4-a716-446655440013',
-              user_name: 'Jordan K.',
-              user_avatar_url: '',
-              mental_rating: 9,
-              emotional_rating: 8,
-              physical_rating: 8,
-              social_rating: 9,
-              spiritual_rating: 9,
-              mood_emoji: '🌟',
-              grateful_for: ['Progress in recovery', 'Beautiful weather'],
-              mental_notes: 'Feeling strong and optimistic',
-              spiritual_notes: 'Connected to my higher purpose',
-              created_at: new Date().toISOString()
-            }
-          ];
-          setTribeCheckins(mockTribeCheckins);
+          // Solo mode: No group check-ins to display
+          setTribeCheckins([]);
         }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
@@ -298,13 +288,6 @@ const Dashboard: React.FC = () => {
     checkin.spiritual_rating) /
     5);
   };
-
-  const getWeeklyAverage = () => {
-    if (recentCheckins.length === 0) return 0;
-    const total = recentCheckins.reduce((sum, checkin) => sum + getAverageRating(checkin), 0);
-    return Math.round(total / recentCheckins.length);
-  };
-
 
   // Determine if user should see admin link
   const showAdmin = isSuperUser || isFacilityAdmin || role === 'ADMIN';
@@ -340,9 +323,40 @@ const Dashboard: React.FC = () => {
 
   }
 
-  // Display streak error if there's an issue
-  const displayStreak = streakError ? 0 : streak;
-  const streakText = streakError ? 'Unable to load' : 'days strong';
+  // Format sobriety display based on days
+  const formatSobrietyDisplay = () => {
+    if (streakError) {
+      return { display: '0', label: 'Days' };
+    }
+
+    if (!stats || streak === 0) {
+      return { display: '0', label: 'Days' };
+    }
+
+    const { years, totalDays } = stats;
+
+    if (totalDays < 365) {
+      // Less than 1 year: show as "X Days"
+      const dayLabel = totalDays === 1 ? 'Day' : 'Days';
+      return { display: totalDays.toString(), label: dayLabel };
+    } else {
+      // 1 year or more: show as "X Year(s) Y Days"
+      const yearLabel = years === 1 ? 'Year' : 'Years';
+      const remainingDays = totalDays - (years * 365);
+      const dayLabel = remainingDays === 1 ? 'Day' : 'Days';
+
+      if (remainingDays === 0) {
+        return { display: years.toString(), label: yearLabel };
+      } else {
+        return {
+          display: `${years} ${yearLabel}`,
+          label: `${remainingDays} ${dayLabel}`
+        };
+      }
+    }
+  };
+
+  const sobrietyDisplay = formatSobrietyDisplay();
 
   return (
     <div className="min-h-screen bg-white p-4 sm:p-6">
@@ -355,7 +369,7 @@ const Dashboard: React.FC = () => {
 
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <h1 className="font-bold text-secondary-800 text-3xl">
-              Welcome back, {user?.email ?? 'Friend'}! ✨
+              Welcome back, {userProfile?.display_name || user?.email || 'Friend'}! ✨
             </h1>
             {role && (
               <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${getRoleBadgeColor()}`}>
@@ -364,7 +378,7 @@ const Dashboard: React.FC = () => {
               </span>
             )}
           </div>
-          <p className="text-secondary-600 text-xl font-medium">
+          <p className="text-secondary-600 text-lg">
             Your recovery journey shines brighter every day
           </p>
         </motion.div>
@@ -408,100 +422,59 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Quick Stats Grid */}
+        {/* Quick Stats Grid - Gamified KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Sobriety Streak */}
-          <motion.div
+          {/* Days Sober */}
+          <GamifiedKpiCard
+            value={sobrietyDisplay.display}
+            label="Days Sober"
+            sublabel={sobrietyDisplay.label}
+            icon={CalendarDays}
+            progress={stats ? Math.min((stats.totalDays / 365) * 100, 100) : 0}
+            maxProgress={stats ? `${stats.years}y ${stats.months}m` : undefined}
+            gradientFrom="from-green-500"
+            gradientTo="to-teal-400"
+            delay={0.1}
+          />
 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-primary-600 text-white p-6 rounded-2xl shadow-lg hover:shadow-xl hover:bg-primary-700 transition-all duration-300 hover-lift">
+          {/* Today's Wellbeing Score */}
+          <GamifiedKpiCard
+            value={todayCheckin ? `${getAverageRating(todayCheckin)}/10` : 'Ready'}
+            label="Today"
+            sublabel={todayCheckin ? 'wellbeing score' : 'MEPSS check-in awaits'}
+            icon={Smile}
+            progress={todayCheckin ? (getAverageRating(todayCheckin) / 10) * 100 : 0}
+            maxProgress={todayCheckin ? '10/10' : undefined}
+            gradientFrom={todayCheckin ? 'from-blue-500' : 'from-amber-500'}
+            gradientTo={todayCheckin ? 'to-indigo-400' : 'to-orange-400'}
+            delay={0.2}
+          />
 
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-white/30 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/40">
-                <Award className="w-7 h-7 text-white drop-shadow-sm" />
-              </div>
-              <span className="text-xs text-white font-bold tracking-wider drop-shadow-sm">STREAK</span>
-            </div>
-            <div className="space-y-2">
-              <div className="text-4xl font-bold text-white drop-shadow-sm">{displayStreak}</div>
-              <div className="text-sm text-white font-medium drop-shadow-sm">{streakText}</div>
-              {streakError &&
-              <div className="text-xs text-white/95 drop-shadow-sm">
-                  Set your sobriety date in profile
-                </div>
-              }
-            </div>
-          </motion.div>
+          {/* Engagement Streak */}
+          <GamifiedKpiCard
+            value={streaksLoading ? '...' : streaks.engagement_streak}
+            label="Streak"
+            sublabel={streaksLoading ? 'loading' : `${streaks.engagement_streak === 1 ? 'day' : 'days'} visiting`}
+            icon={Flame}
+            progress={streaksLoading ? 0 : Math.min((streaks.engagement_streak / 30) * 100, 100)}
+            maxProgress={streaksLoading ? undefined : `${Math.min(streaks.engagement_streak, 30)}/30`}
+            gradientFrom="from-orange-500"
+            gradientTo="to-amber-400"
+            delay={0.3}
+          />
 
-          {/* Today's Check-in Status */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className={`${todayCheckin ? 'bg-success-600 hover:bg-success-700' : 'bg-warning-600 hover:bg-warning-700'} text-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 hover-lift`}>
-
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-white/30 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/40">
-                <CheckCircle className="w-7 h-7 text-white drop-shadow-sm" />
-              </div>
-              <span className="text-xs text-white font-bold tracking-wider drop-shadow-sm">TODAY</span>
-            </div>
-            <div className="space-y-2">
-              {todayCheckin ?
-              <>
-                  <div className="text-4xl font-bold text-white drop-shadow-sm">
-                    {getAverageRating(todayCheckin)}/10
-                  </div>
-                  <div className="text-sm text-white font-medium drop-shadow-sm">wellbeing score</div>
-                </> :
-
-              <>
-                  <div className="text-3xl font-bold text-white drop-shadow-sm">Ready</div>
-                  <div className="text-sm text-white font-medium drop-shadow-sm">check-in awaits</div>
-                </>
-              }
-            </div>
-          </motion.div>
-
-          {/* Weekly Average */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-info-600 text-white p-6 rounded-2xl shadow-lg hover:shadow-xl hover:bg-info-700 transition-all duration-300 hover-lift">
-
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-white/30 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/40">
-                <TrendingUp className="w-7 h-7 text-white drop-shadow-sm" />
-              </div>
-              <span className="text-xs text-white font-bold tracking-wider drop-shadow-sm">WEEK</span>
-            </div>
-            <div className="space-y-2">
-              <div className="text-4xl font-bold text-white drop-shadow-sm">{getWeeklyAverage()}/10</div>
-              <div className="text-sm text-white font-medium drop-shadow-sm">average score</div>
-            </div>
-          </motion.div>
-
-          {/* Community */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-accent-600 text-white p-6 rounded-2xl shadow-lg hover:shadow-xl hover:bg-accent-700 transition-all duration-300 hover-lift">
-
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-white/30 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/40">
-                <Users className="w-7 h-7 text-white drop-shadow-sm" />
-              </div>
-              <span className="text-xs text-white font-bold tracking-wider drop-shadow-sm">SANGHA</span>
-            </div>
-            <div className="space-y-2">
-              <div className="text-3xl font-bold text-white drop-shadow-sm">Active</div>
-              <div className="text-sm text-white font-medium drop-shadow-sm">community</div>
-            </div>
-          </motion.div>
+          {/* Check-In Streak */}
+          <GamifiedKpiCard
+            value={streaksLoading ? '...' : streaks.check_in_streak}
+            label="Check-Ins"
+            sublabel={streaksLoading ? 'loading' : `${streaks.check_in_streak === 1 ? 'day' : 'days'} consistent`}
+            icon={CheckCircle2}
+            progress={streaksLoading ? 0 : Math.min((streaks.check_in_streak / 30) * 100, 100)}
+            maxProgress={streaksLoading ? undefined : `${Math.min(streaks.check_in_streak, 30)}/30`}
+            gradientFrom="from-cyan-500"
+            gradientTo="to-sky-400"
+            delay={0.4}
+          />
         </div>
 
         {/* Tribe Check-ins */}

@@ -7,9 +7,17 @@ import { clearAuthStorage } from '../hooks/useAuth'
 interface UserAccount {
   id: string
   email: string
-  display_name?: string
+  display_name: string
   platform_role?: string  // SuperUser, Facility Admin, Group Admin, Basic User
   is_superuser?: boolean
+}
+
+interface TenantMembership {
+  user_id: string
+  role: string
+  tenants: {
+    name: string
+  }[] | null
 }
 
 // Singleton admin client to prevent multiple instances
@@ -102,9 +110,9 @@ export const DevUserImpersonation: React.FC = () => {
             `)
 
           const membershipMap = new Map(
-            memberships?.map(m => [
+            memberships?.map((m: TenantMembership) => [
               m.user_id,
-              { tenant: (m as any).tenants?.name, role: m.role }
+              { tenant: m.tenants?.[0]?.name, role: m.role }
             ]) || []
           )
 
@@ -216,18 +224,41 @@ export const DevUserImpersonation: React.FC = () => {
             console.log('[DevUserImpersonation] Verifying OTP to create new session')
 
             // Step 4: Verify the OTP to create a new session
-            const { error: verifyError } = await supabase.auth.verifyOtp({
+            const otpType = (type === 'magiclink' || type === 'signup' || type === 'invite' || type === 'recovery' || type === 'email_change')
+              ? type
+              : 'magiclink';
+            const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
               token_hash: token,
-              type: type as any || 'magiclink',
+              type: otpType,
             })
 
             if (verifyError) throw verifyError
 
-            console.log('[DevUserImpersonation] Session created successfully, reloading page')
+            console.log('[DevUserImpersonation] Session created successfully:', verifyData.session ? 'Session present' : 'No session')
 
-            // Step 5: Reload the page to initialize with the new session
-            // Use a small delay to ensure the session is fully established
-            await new Promise(resolve => setTimeout(resolve, 200))
+            // Step 5: Wait for the session to be persisted to localStorage
+            // Check localStorage to confirm the session is saved
+            let retries = 0
+            const maxRetries = 10
+            while (retries < maxRetries) {
+              const storageKey = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL!).hostname.split('.')[0]}-auth-token`
+              const storedSession = localStorage.getItem(storageKey)
+
+              if (storedSession) {
+                console.log('[DevUserImpersonation] Session persisted to localStorage')
+                break
+              }
+
+              console.log('[DevUserImpersonation] Waiting for session to persist... (attempt', retries + 1, ')')
+              await new Promise(resolve => setTimeout(resolve, 100))
+              retries++
+            }
+
+            if (retries >= maxRetries) {
+              console.warn('[DevUserImpersonation] Session may not be fully persisted, but proceeding anyway')
+            }
+
+            console.log('[DevUserImpersonation] Reloading page to initialize with new session')
             window.location.reload()
             return
           }

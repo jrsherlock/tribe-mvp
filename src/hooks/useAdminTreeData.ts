@@ -3,7 +3,7 @@
  * Fetches and transforms hierarchical data based on user role
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import type {
   TreeDataResponse,
@@ -27,6 +27,7 @@ export function useAdminTreeData(
   const [data, setData] = useState<TreeDataResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,10 +66,13 @@ export function useAdminTreeData(
     return () => {
       cancelled = true;
     };
-  }, [userRole, userId, tenantId]);
+  }, [userRole, userId, tenantId, refetchTrigger]);
 
   // Build tree structure from flat data
-  const treeNodes = data ? buildTreeStructure(data, userRole, userId) : [];
+  // Memoize to prevent creating new array on every render (which causes infinite loops)
+  const treeNodes = useMemo(() => {
+    return data ? buildTreeStructure(data, userRole, userId) : [];
+  }, [data, userRole, userId]);
 
   return {
     treeNodes,
@@ -76,9 +80,8 @@ export function useAdminTreeData(
     isLoading,
     error,
     refetch: () => {
-      // Trigger re-fetch by updating a dependency
-      setData(null);
-      setIsLoading(true);
+      // Trigger re-fetch by incrementing the refetch trigger
+      setRefetchTrigger(prev => prev + 1);
     }
   };
 }

@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 function json(body: any, status = 200) {
@@ -32,7 +33,10 @@ function generateSecureToken(size = 32): string {
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders
+    });
   }
 
   try {
@@ -110,63 +114,59 @@ Deno.serve(async (req: Request) => {
         role: requestedRole,
         token,
         expires_at: expiresAt,
+        invited_by: authData.user.id,
       })
-      .select("id, token, email, tenant_id, role, expires_at, created_at")
+      .select("id, token, email, tenant_id, role, expires_at, created_at, invited_by")
       .single();
 
     if (inviteError) {
       return json({ error: "Failed to create invite", details: inviteError.message }, 500);
     }
 
-    // Send email via SendGrid (recommended) or return invite for manual handling
-    const sendgridApiKey = Deno.env.get("SENDGRID_API_KEY");
-    const fromEmail = Deno.env.get("INVITE_FROM_EMAIL") || "no-reply@your-app.com";
+    // Send email via Supabase Auth's built-in email functionality
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!SUPABASE_SERVICE_ROLE_KEY) {
+      return json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY environment variable" }, 500);
+    }
+
+    // Create admin client with service role key for inviteUserByEmail
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
     const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://your-app.com";
     const acceptUrl = `${appBaseUrl.replace(/\/$/, "")}/accept-invite?token=${encodeURIComponent(token)}`;
 
-    const subject = `You're invited to join ${tenant?.name ?? "our app"}`;
-    const plainText = `Hello!\n\nYou've been invited to join ${tenant?.name ?? "our app"} as ${requestedRole}.\n\nAccept your invite: ${acceptUrl}\n\nThis link will expire on ${new Date(expiresAt).toLocaleString()}.\n\nIf you weren't expecting this, you can ignore this email.`;
+    // Use Supabase Auth's inviteUserByEmail method
+    // This will send an email using the custom "Invite" template configured in Supabase
+    const { data: authInvite, error: authError } = await adminClient.auth.admin.inviteUserByEmail(
+      targetEmail,
+      {
+        data: {
+          tenant_id: tenantId,
+          tenant_name: tenant?.name ?? "The Tribe",
+          role: requestedRole,
+          invited_by: authData.user.id,
+          invite_token: token,
+        },
+        redirectTo: acceptUrl,
+      }
+    );
 
-    if (!sendgridApiKey) {
-      // If email is not configured yet, return the accept URL so the caller can deliver it another way
+    if (authError) {
+      // If Supabase email fails, return the invite with manual link
+      console.error("Supabase Auth invite error:", authError);
       return json({
-        message: "Invite created. Email sending not configured (missing SENDGRID_API_KEY).",
+        message: "Invite created but email sending failed. Share this link manually.",
         invite,
         accept_url: acceptUrl,
-      });
+        error_details: authError.message,
+      }, 207); // 207 Multi-Status: partial success
     }
 
-    const sgRes = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${sendgridApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        personalizations: [
-          {
-            to: [{ email: targetEmail }],
-            subject,
-          },
-        ],
-        from: { email: fromEmail, name: tenant?.name ?? "Tribe" },
-        content: [
-          { type: "text/plain", value: plainText },
-        ],
-      }),
+    return json({
+      message: "Invitation sent successfully via Supabase Auth",
+      invite,
+      auth_invite: authInvite,
     });
-
-    if (!sgRes.ok) {
-      const errTxt = await sgRes.text();
-      return json({
-        error: "Invite created but failed to send email via SendGrid",
-        invite,
-        details: errTxt,
-        accept_url: acceptUrl,
-      }, 502);
-    }
-
-    return json({ message: "Invite created and email sent", invite });
   } catch (e: any) {
     console.error("invite_user error", e);
     return json({ error: "Unexpected error", details: String(e?.message ?? e) }, 500);

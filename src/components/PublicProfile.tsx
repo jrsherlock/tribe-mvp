@@ -1,9 +1,8 @@
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import {User, Calendar, Award, TrendingUp, MapPin, Globe, Lock} from 'lucide-react'
-import { useAuth } from '../hooks/useAuth'
-import { useSobrietyStreak } from '../hooks/useSobrietyStreak'
+import { User, Calendar, Award, TrendingUp, MapPin } from 'lucide-react'
+import { differenceInDays, differenceInMonths, differenceInYears } from 'date-fns'
 import { supabase } from '../lib/supabase'
 import { useTenant } from '../lib/tenant'
 import PhotoAlbums from './PhotoAlbums'
@@ -27,21 +26,60 @@ interface PublicProfileProps {
   onClose: () => void
 }
 
+interface SobrietyStats {
+  totalDays: number
+  years: number
+  months: number
+  days: number
+  formattedStreak: string
+}
+
+// Helper function to calculate sobriety stats from a date
+function calculateSobrietyStats(sobrietyDate: string | null | undefined): SobrietyStats | null {
+  if (!sobrietyDate) return null
+
+  const startDate = new Date(sobrietyDate)
+  const today = new Date()
+
+  const totalDays = Math.max(0, differenceInDays(today, startDate))
+  const years = differenceInYears(today, startDate)
+  const months = differenceInMonths(today, startDate) % 12
+  const remainingDays = differenceInDays(today, new Date(today.getFullYear(), today.getMonth() - months, startDate.getDate()))
+
+  let formattedStreak = ''
+  if (years > 0) {
+    formattedStreak += `${years} year${years > 1 ? 's' : ''}`
+    if (months > 0) formattedStreak += `, ${months} month${months > 1 ? 's' : ''}`
+  } else if (months > 0) {
+    formattedStreak += `${months} month${months > 1 ? 's' : ''}`
+    if (remainingDays > 0) formattedStreak += `, ${remainingDays} day${remainingDays > 1 ? 's' : ''}`
+  } else {
+    formattedStreak = `${totalDays} day${totalDays !== 1 ? 's' : ''}`
+  }
+
+  return {
+    totalDays,
+    years,
+    months,
+    days: remainingDays,
+    formattedStreak
+  }
+}
+
 const PublicProfile: React.FC<PublicProfileProps> = ({ userId, onClose }) => {
-  const { user: currentUser } = useAuth()
   const { currentTenantId } = useTenant()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'about' | 'albums'>('about')
 
-  const sobrietyStats = useSobrietyStreak(profile?.sobriety_date)
+  // Calculate sobriety stats from the profile's sobriety date
+  const sobrietyStats = useMemo(
+    () => calculateSobrietyStats(profile?.sobriety_date),
+    [profile?.sobriety_date]
+  )
   const streak = sobrietyStats?.totalDays || 0
 
-  useEffect(() => {
-    fetchProfile()
-  }, [userId])
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       setLoading(true)
       let q = supabase.from('user_profiles').select('*').eq('user_id', userId).eq('is_public', true)
@@ -49,7 +87,7 @@ const PublicProfile: React.FC<PublicProfileProps> = ({ userId, onClose }) => {
       const { data, error } = await q.limit(1)
       if (error) throw error
       if (data && data.length > 0) {
-        setProfile(data[0] as any)
+        setProfile(data[0] as UserProfile)
       } else {
         toast.error('Profile not found or not public')
         onClose()
@@ -61,7 +99,11 @@ const PublicProfile: React.FC<PublicProfileProps> = ({ userId, onClose }) => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [userId, currentTenantId, onClose])
+
+  useEffect(() => {
+    fetchProfile()
+  }, [fetchProfile])
 
   if (loading) {
     return (

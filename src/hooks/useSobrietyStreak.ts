@@ -87,7 +87,7 @@ export function useSobrietyStreak() {
     }
 
     fetchSobrietyData()
-  }, [user?.userId])
+  }, [user?.userId, currentTenantId])
 
   return {
     streak,

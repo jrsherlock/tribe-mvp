@@ -2,13 +2,15 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useSobrietyStreak } from '../hooks/useSobrietyStreak'
+import { useUserGroup } from '../hooks/useUserGroup'
 import { getOwnProfile, upsertOwnProfile } from '../lib/services/profiles'
 import { uploadPhoto } from '../lib/services/storage'
 import { useTenant } from '../lib/tenant'
 import { motion } from 'framer-motion'
-import {User, Calendar, Award, TrendingUp, Edit3, Save, X, Camera, Mail, MapPin, Phone, Globe, Lock, Upload} from 'lucide-react'
+import {User, Calendar, Award, Users, Edit3, Save, X, Camera, Mail, MapPin, Phone, Globe, Lock, Upload, Target} from 'lucide-react'
 import toast from 'react-hot-toast'
 import PhotoAlbums from './PhotoAlbums'
+import GoalsTab from './GoalsTab'
 
 interface UserProfile {
   id?: string
@@ -33,7 +35,7 @@ const UserProfile: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'albums'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'albums' | 'goals'>('profile')
   const [editForm, setEditForm] = useState({
     display_name: '',
     bio: '',
@@ -45,10 +47,11 @@ const UserProfile: React.FC = () => {
     is_public: false
   })
 
-  // Use the hook with the profile's sobriety date, and handle null return safely
-  const sobrietyStats = useSobrietyStreak(profile?.sobriety_date)
-  const streak = sobrietyStats?.totalDays || 0
-  const streakLoading = loading // Use the profile loading state
+  // Use the hook to get sobriety stats for the current user
+  const { streak, stats, isLoading: streakLoading } = useSobrietyStreak()
+
+  // Use the hook to get user's group information
+  const { group: userGroup, isLoading: groupLoading } = useUserGroup()
 
   const fetchInFlight = useRef(false)
   const lastFetchKey = useRef<string | null>(null)
@@ -195,7 +198,7 @@ const UserProfile: React.FC = () => {
     setIsEditing(false)
   }
 
-  if (loading || streakLoading) {
+  if (loading || streakLoading || groupLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary-50 to-primary-200">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
@@ -227,9 +230,9 @@ const UserProfile: React.FC = () => {
           <div className="flex space-x-2">
             <button
               onClick={() => setActiveTab('profile')}
-              className={`flex-1 py-3 px-4 rounded-xl font-medium transition-colors ${
+              className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-colors ${
                 activeTab === 'profile'
-                  ? 'bg-accent text-primary-900 shadow-md drop-shadow-sm'
+                  ? 'bg-accent-500 text-white shadow-lg'
                   : 'text-primary-600 hover:text-primary-800 hover:bg-primary-100'
               }`}
             >
@@ -237,13 +240,26 @@ const UserProfile: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('albums')}
-              className={`flex-1 py-3 px-4 rounded-xl font-medium transition-colors ${
+              className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-colors ${
                 activeTab === 'albums'
-                  ? 'bg-accent text-primary-900 shadow-md drop-shadow-sm'
+                  ? 'bg-accent-500 text-white shadow-lg'
                   : 'text-primary-600 hover:text-primary-800 hover:bg-primary-100'
               }`}
             >
               Photo Albums
+            </button>
+            <button
+              onClick={() => setActiveTab('goals')}
+              className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-colors ${
+                activeTab === 'goals'
+                  ? 'bg-accent-500 text-white shadow-lg'
+                  : 'text-primary-600 hover:text-primary-800 hover:bg-primary-100'
+              }`}
+            >
+              <div className="flex items-center justify-center space-x-2">
+                <Target size={18} />
+                <span>Goals</span>
+              </div>
             </button>
           </div>
         </motion.div>
@@ -262,7 +278,7 @@ const UserProfile: React.FC = () => {
                 {!isEditing ? (
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="flex items-center space-x-2 px-4 py-2 bg-accent text-primary-900 rounded-xl hover:bg-accent/90 transition-colors drop-shadow-sm"
+                    className="flex items-center space-x-2 px-4 py-2 bg-accent-500 text-white rounded-xl font-semibold hover:bg-accent-600 transition-colors shadow-lg"
                   >
                     <Edit3 size={16} />
                     <span>Edit</span>
@@ -272,7 +288,7 @@ const UserProfile: React.FC = () => {
                     <button
                       onClick={handleSave}
                       disabled={saving}
-                      className="flex items-center space-x-2 px-4 py-2 bg-accent text-primary-900 rounded-xl hover:bg-accent/90 transition-colors disabled:opacity-50 drop-shadow-sm"
+                      className="flex items-center space-x-2 px-4 py-2 bg-accent-500 text-white rounded-xl font-semibold hover:bg-accent-600 transition-colors shadow-lg disabled:opacity-50"
                     >
                       <Save size={16} />
                       <span>{saving ? 'Saving...' : 'Save'}</span>
@@ -498,8 +514,8 @@ const UserProfile: React.FC = () => {
                 </div>
                 <div className="text-3xl font-bold text-primary-800 mb-2">{streak}</div>
                 <div className="text-primary-600">Days Sober</div>
-                {sobrietyStats?.formattedStreak && (
-                  <div className="text-sm text-primary-500 mt-1">{sobrietyStats.formattedStreak}</div>
+                {stats?.formattedStreak && (
+                  <div className="text-sm text-primary-500 mt-1">{stats.formattedStreak}</div>
                 )}
               </motion.div>
 
@@ -522,7 +538,7 @@ const UserProfile: React.FC = () => {
                 <div className="text-primary-600">Member Since</div>
               </motion.div>
 
-              {/* Journey Progress */}
+              {/* Group Information */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -530,14 +546,23 @@ const UserProfile: React.FC = () => {
                 className="bg-secondary rounded-3xl p-6 shadow-lg border border-primary-200 text-center"
               >
                 <div className="w-16 h-16 bg-primary-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <TrendingUp className="w-8 h-8 text-white" />
+                  <Users className="w-8 h-8 text-white" />
                 </div>
-                <div className="text-lg font-bold text-primary-800 mb-2">Growing</div>
-                <div className="text-primary-600">Journey Status</div>
+                {userGroup ? (
+                  <>
+                    <div className="text-lg font-bold text-primary-800 mb-2">{userGroup.name}</div>
+                    <div className="text-primary-600">My Group</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm font-medium text-primary-700 mb-2">No Group</div>
+                    <div className="text-xs text-primary-500">Solo mode</div>
+                  </>
+                )}
               </motion.div>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'albums' ? (
           /* Photo Albums Tab */
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -546,6 +571,15 @@ const UserProfile: React.FC = () => {
             className="bg-secondary rounded-3xl p-8 shadow-lg border border-primary-200"
           >
             <PhotoAlbums isOwnProfile={true} />
+          </motion.div>
+        ) : (
+          /* Goals Tab */
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <GoalsTab />
           </motion.div>
         )}
       </div>

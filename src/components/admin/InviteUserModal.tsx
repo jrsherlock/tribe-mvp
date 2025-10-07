@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
-import { X, Mail, Shield, Calendar, Copy, Check } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { X, Mail, Shield, Calendar, Copy, Check, Users } from 'lucide-react'
 import { inviteUser } from '../../lib/services/invites'
+import { listGroupsByTenant } from '../../lib/services/groups'
 import toast from 'react-hot-toast'
 
 interface InviteUserModalProps {
@@ -10,13 +11,42 @@ interface InviteUserModalProps {
   onSuccess: () => void
 }
 
+interface Group {
+  id: string
+  name: string
+  description?: string
+}
+
 export function InviteUserModal({ tenantId, tenantName, onClose, onSuccess }: InviteUserModalProps) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'ADMIN' | 'MEMBER'>('MEMBER')
   const [expiresInDays, setExpiresInDays] = useState(7)
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('')
+  const [groups, setGroups] = useState<Group[]>([])
+  const [loadingGroups, setLoadingGroups] = useState(true)
   const [loading, setLoading] = useState(false)
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Load groups for this tenant
+  useEffect(() => {
+    async function fetchGroups() {
+      try {
+        const { data, error } = await listGroupsByTenant(tenantId)
+        if (error) {
+          console.error('Failed to load groups:', error)
+          toast.error('Failed to load groups')
+          return
+        }
+        setGroups(data || [])
+      } catch (err) {
+        console.error('Error loading groups:', err)
+      } finally {
+        setLoadingGroups(false)
+      }
+    }
+    fetchGroups()
+  }, [tenantId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,10 +63,16 @@ export function InviteUserModal({ tenantId, tenantName, onClose, onSuccess }: In
         tenant_id: tenantId,
         role,
         expires_in_days: expiresInDays,
+        group_id: selectedGroupId || undefined,
       })
 
-      // If email sending is not configured, show the invite link
-      if (result.accept_url) {
+      // Check if email was sent successfully
+      if (result.email_sent) {
+        toast.success(`Invitation sent to ${email}!`)
+        onSuccess()
+        onClose()
+      } else if (result.accept_url) {
+        // Email failed, show manual link
         setInviteLink(result.accept_url)
         toast.success('Invitation created! Share the link below.')
       } else {
@@ -117,9 +153,45 @@ export function InviteUserModal({ tenantId, tenantName, onClose, onSuccess }: In
               <option value="ADMIN">Facility Admin</option>
             </select>
             <p className="text-xs text-gray-500 mt-1">
-              {role === 'ADMIN' 
-                ? '✓ Can manage facility, groups, and members' 
+              {role === 'ADMIN'
+                ? '✓ Can manage facility, groups, and members'
                 : '✓ Can participate in groups and view shared content'}
+            </p>
+          </div>
+
+          {/* Group Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Users className="inline w-4 h-4 mr-1" />
+              Assign to Group (Optional)
+            </label>
+            {loadingGroups ? (
+              <div className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                Loading groups...
+              </div>
+            ) : groups.length === 0 ? (
+              <div className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                No groups available
+              </div>
+            ) : (
+              <select
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={loading}
+              >
+                <option value="">No group (user can join later)</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-gray-500 mt-1">
+              {selectedGroupId
+                ? '✓ User will be automatically added to this group'
+                : 'User can join groups after accepting the invitation'}
             </p>
           </div>
 

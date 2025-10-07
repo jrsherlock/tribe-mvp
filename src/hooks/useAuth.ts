@@ -6,6 +6,7 @@ interface User {
   userId: string
   email?: string
   tenant_id?: string | null
+  display_name?: string
 }
 
 // Utility to clear all auth-related storage
@@ -34,38 +35,13 @@ export function useAuth() {
 
   useEffect(() => {
     let ignore = false
-    let sessionTimeout: NodeJS.Timeout | null = null
     let profileFetchController: AbortController | null = null
 
     async function load() {
       console.log('[useAuth] Starting to load session...')
       try {
-        // Add a reasonable timeout (3 seconds) with better error handling
-        const sessionPromise = supabase.auth.getSession()
-
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          sessionTimeout = setTimeout(() => {
-            console.warn('[useAuth] getSession() timed out after 3s - treating as no session')
-            reject(new Error('Session load timeout'))
-          }, 3000)
-        })
-
-        let data, error
-        try {
-          const result = await Promise.race([sessionPromise, timeoutPromise])
-          data = result.data
-          error = result.error
-          if (sessionTimeout) clearTimeout(sessionTimeout)
-        } catch (timeoutError) {
-          // Timeout occurred - treat as no session (don't clear storage, might be temporary)
-          console.warn('[useAuth] Timeout - treating as no session')
-          if (!ignore) {
-            setUser(null)
-            setIsAuthenticated(false)
-            setLoading(false)
-          }
-          return
-        }
+        // Get session without timeout - let it complete naturally
+        const { data, error } = await supabase.auth.getSession()
 
         if (error) {
           console.error('[useAuth] Error getting session:', error)
@@ -79,14 +55,14 @@ export function useAuth() {
 
         if (!ignore) {
           if (s?.user) {
-            console.log('[useAuth] Fetching user profile for tenant_id...')
-            // Fetch tenant_id from user_profiles with abort controller
+            console.log('[useAuth] Fetching user profile for tenant_id and display_name...')
+            // Fetch tenant_id and display_name from user_profiles with abort controller
             let profile = null
             try {
               profileFetchController = new AbortController()
               const { data: profileData, error } = await supabase
                 .from('user_profiles')
-                .select('tenant_id')
+                .select('tenant_id, display_name')
                 .eq('user_id', s.user.id)
                 .abortSignal(profileFetchController.signal)
                 .single()
@@ -95,7 +71,7 @@ export function useAuth() {
                 console.warn('[useAuth] Could not fetch user profile:', error.message)
               } else if (!error) {
                 profile = profileData
-                console.log('[useAuth] Profile loaded, tenant_id:', profile?.tenant_id)
+                console.log('[useAuth] Profile loaded, tenant_id:', profile?.tenant_id, 'display_name:', profile?.display_name)
               }
             } catch (err: any) {
               if (err.name !== 'AbortError') {
@@ -106,7 +82,8 @@ export function useAuth() {
             const u = {
               userId: s.user.id,
               email: s.user.email ?? undefined,
-              tenant_id: profile?.tenant_id ?? null
+              tenant_id: profile?.tenant_id ?? null,
+              display_name: profile?.display_name ?? undefined
             }
             console.log('[useAuth] Setting user:', u)
             setUser(u)
@@ -150,12 +127,12 @@ export function useAuth() {
 
         try {
           if (session?.user) {
-            // Fetch tenant_id from user_profiles - no timeout needed
+            // Fetch tenant_id and display_name from user_profiles - no timeout needed
             let profile = null
             try {
               const { data: profileData, error } = await supabase
                 .from('user_profiles')
-                .select('tenant_id')
+                .select('tenant_id, display_name')
                 .eq('user_id', session.user.id)
                 .single()
 
@@ -171,7 +148,8 @@ export function useAuth() {
             const u = {
               userId: session.user.id,
               email: session.user.email ?? undefined,
-              tenant_id: profile?.tenant_id ?? null
+              tenant_id: profile?.tenant_id ?? null,
+              display_name: profile?.display_name ?? undefined
             }
             setUser(u)
             setIsAuthenticated(true)
@@ -192,7 +170,6 @@ export function useAuth() {
     return () => {
       console.log('[useAuth] Cleanup')
       ignore = true
-      if (sessionTimeout) clearTimeout(sessionTimeout)
       if (authChangeTimeout) clearTimeout(authChangeTimeout)
       if (profileFetchController) profileFetchController.abort()
       sub.subscription.unsubscribe()

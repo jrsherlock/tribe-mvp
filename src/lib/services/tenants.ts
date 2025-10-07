@@ -4,6 +4,8 @@ export type Tenant = {
   id: string
   name: string
   slug: string
+  profile_picture_url?: string
+  bio?: string
   created_at?: string
 }
 
@@ -36,8 +38,12 @@ export async function createTenantRPC(params: { name: string; slug: string }) {
   return supabase.rpc('create_tenant', { p_name: params.name, p_slug: params.slug })
 }
 
-export async function updateTenant(tenantId: string, fields: Partial<Pick<Tenant, 'name' | 'slug'>>) {
+export async function updateTenant(tenantId: string, fields: Partial<Pick<Tenant, 'name' | 'slug' | 'profile_picture_url' | 'bio'>>) {
   return supabase.from('tenants').update(fields).eq('id', tenantId)
+}
+
+export async function getTenant(tenantId: string) {
+  return supabase.from('tenants').select('*').eq('id', tenantId).single()
 }
 
 export async function deleteTenant(tenantId: string) {

@@ -5,6 +5,8 @@ export type Group = {
   tenant_id: string
   name: string
   description?: string | null
+  cover_image_url?: string | null
+  created_by?: string | null
   created_at?: string
 }
 
@@ -22,6 +24,9 @@ export async function listGroups(tenantId: string) {
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
 }
+
+// Alias for consistency
+export const listGroupsByTenant = listGroups
 
 export async function createGroup(params: { tenant_id: string; name: string; description?: string }) {
   const { data, error } = await supabase
@@ -75,6 +80,18 @@ export async function joinGroup(params: { group_id: string; user_id: string }) {
 }
 
 export async function leaveGroup(params: { group_id: string; user_id: string }) {
+  return supabase.from('group_memberships').delete().eq('group_id', params.group_id).eq('user_id', params.user_id)
+}
+
+export async function getGroup(groupId: string) {
+  return supabase.from('groups').select('*').eq('id', groupId).single()
+}
+
+export async function updateGroup(groupId: string, updates: Partial<Pick<Group, 'name' | 'description' | 'cover_image_url'>>) {
+  return supabase.from('groups').update(updates).eq('id', groupId).select().single()
+}
+
+export async function removeGroupMember(params: { group_id: string; user_id: string }) {
   return supabase.from('group_memberships').delete().eq('group_id', params.group_id).eq('user_id', params.user_id)
 }
 

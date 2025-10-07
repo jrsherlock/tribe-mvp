@@ -6,6 +6,8 @@ export { Card } from './Card';
 export { Input } from './Input';
 export { Badge } from './Badge';
 export { ProgressBar } from './ProgressBar';
+export { CircularProgress } from './CircularProgress';
+export { Confetti } from './Confetti';
 export { ToastContent, getToastStyles, therapeuticToasts } from './Toast';
 
 export type { ButtonProps } from './Button';
@@ -13,3 +15,5 @@ export type { CardProps } from './Card';
 export type { InputProps } from './Input';
 export type { BadgeProps } from './Badge';
 export type { ProgressBarProps } from './ProgressBar';
+export type { CircularProgressProps } from './CircularProgress';
+export type { ConfettiProps } from './Confetti';

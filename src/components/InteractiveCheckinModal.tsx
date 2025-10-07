@@ -139,7 +139,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
             <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
               {/* View All Today's Checkins Button */}
               <Link
-                to="/sangha?filter=today"
+                to="/mytribe?filter=today"
                 className="hidden sm:flex items-center space-x-2 px-3 sm:px-4 py-2 bg-sage-100 hover:bg-sage-200 text-sage-700 rounded-xl transition-colors text-xs sm:text-sm font-medium"
                 onClick={onClose}
               >
@@ -150,7 +150,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
 
               {/* Mobile View All Button */}
               <Link
-                to="/sangha?filter=today"
+                to="/mytribe?filter=today"
                 className="sm:hidden p-2 bg-sage-100 hover:bg-sage-200 text-sage-700 rounded-lg transition-colors"
                 onClick={onClose}
                 aria-label="View all today's checkins"

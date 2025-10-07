@@ -9,6 +9,7 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { useAdminTreeData } from '@/hooks/useAdminTreeData';
 import { Building2, Users, User, AlertTriangle, Search, ChevronDown, ChevronRight, Plus, Edit, Trash2, UserPlus, MoreVertical } from 'lucide-react';
 import type { TreeNode, UserRole } from '@/types/admin-tree.types';
+import type { ComprehensiveUser } from '@/hooks/useAllUsers';
 import {
   SuperUserBadge,
   FacilityAdminBadge,
@@ -23,6 +24,9 @@ import { EditEntityModal, type EditEntityData, type EntityType } from './EditEnt
 import { DeleteConfirmationDialog, type DeleteConfirmationProps } from './DeleteConfirmationDialog';
 import { AssignToGroupModal } from './AssignToGroupModal';
 import { InviteUserModal } from './InviteUserModal';
+import { FacilityProfile } from './FacilityProfile';
+import { AllUsersView } from './AllUsersView';
+import DataIntegrityDiagnostic from './DataIntegrityDiagnostic';
 import { deleteTenant } from '@/lib/services/tenants';
 import { deleteGroup } from '@/lib/services/groups';
 import { supabase } from '@/lib/supabase';
@@ -73,6 +77,9 @@ export function AdminTreeView() {
     user?.tenant_id || null
   );
 
+  // View mode state
+  const [viewMode, setViewMode] = useState<'tree' | 'users' | 'diagnostic'>('tree');
+
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
@@ -81,6 +88,7 @@ export function AdminTreeView() {
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
   const [selectedNode, setSelectedNode] = useState<TreeNode | null>(null);
+  const [selectedUser, setSelectedUser] = useState<ComprehensiveUser | null>(null);
   const [filteredNodes, setFilteredNodes] = useState<TreeNode[]>([]);
 
   // Modal state
@@ -221,7 +229,15 @@ export function AdminTreeView() {
     setFilteredNodes(matchingNodes);
 
     // Auto-expand nodes that have matching children
-    setExpandedNodes(prev => new Set([...prev, ...nodesToExpand]));
+    // Only update if there are actually nodes to expand (prevents infinite loop)
+    if (nodesToExpand.size > 0) {
+      setExpandedNodes(prev => {
+        const newSet = new Set([...prev, ...nodesToExpand]);
+        // Only update if the set actually changed
+        if (newSet.size === prev.size) return prev;
+        return newSet;
+      });
+    }
   }, [searchQuery, treeNodes]);
 
   // Handle expand/collapse
@@ -385,102 +401,177 @@ export function AdminTreeView() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Left Sidebar - Tree Navigation */}
-      <div className="w-96 bg-white border-r border-gray-200 flex flex-col">
+      {/* Left Sidebar - Tree Navigation, All Users View, or Diagnostic View */}
+      <div className={`${viewMode === 'tree' ? 'w-96' : 'flex-1'} bg-white border-r border-gray-200 flex flex-col`}>
         {/* Header */}
         <div className="p-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Admin Tree</h1>
-          <p className="text-sm text-gray-600">
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Admin Management</h1>
+          <p className="text-sm text-gray-600 mb-3">
             {userRole === 'SUPERUSER' && 'SuperUser - Full Access'}
             {userRole === 'FACILITY_ADMIN' && 'Facility Admin'}
             {userRole === 'GROUP_ADMIN' && 'Group Admin'}
           </p>
-        </div>
 
-        {/* Search Bar */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search tenants, groups, users..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-        </div>
-
-        {/* Toolbar */}
-        <div className="p-4 border-b border-gray-200 space-y-2">
-          <div className="flex gap-2">
-            <button
-              onClick={expandAll}
-              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              Expand All
-            </button>
-            <button
-              onClick={collapseAll}
-              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              Collapse All
-            </button>
-          </div>
-
-          {/* Action Buttons */}
+          {/* View Toggle - SuperUser Only */}
           {isSuperUser && (
-            <button
-              onClick={handleCreateFacility}
-              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 font-medium"
-            >
-              <Plus className="w-4 h-4" />
-              Create Facility
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setViewMode('tree');
+                  setSelectedUser(null);
+                }}
+                className={`
+                  flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2
+                  ${viewMode === 'tree'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }
+                `}
+              >
+                <Building2 className="w-4 h-4" />
+                Tree
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode('users');
+                  setSelectedNode(null);
+                }}
+                className={`
+                  flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2
+                  ${viewMode === 'users'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }
+                `}
+              >
+                <Users className="w-4 h-4" />
+                Users
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode('diagnostic');
+                  setSelectedNode(null);
+                  setSelectedUser(null);
+                }}
+                className={`
+                  flex-1 px-3 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2
+                  ${viewMode === 'diagnostic'
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }
+                `}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Diagnostic
+              </button>
+            </div>
           )}
         </div>
 
-        {/* Tree Container */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {filteredNodes.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">
-                {searchQuery ? `No results for "${searchQuery}"` : 'No data available'}
-              </p>
-              {searchQuery && (
+        {/* Conditional Content Based on View Mode */}
+        {viewMode === 'tree' ? (
+          <>
+            {/* Search Bar */}
+            <div className="p-4 border-b border-gray-200">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search tenants, groups, users..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Toolbar */}
+            <div className="p-4 border-b border-gray-200 space-y-2">
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setSearchQuery('')}
-                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                  onClick={expandAll}
+                  className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                 >
-                  Clear search
+                  Expand All
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Collapse All
+                </button>
+              </div>
+
+              {/* Action Buttons */}
+              {isSuperUser && (
+                <button
+                  onClick={handleCreateFacility}
+                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 font-medium"
+                >
+                  <Plus className="w-4 h-4" />
+                  Create Facility
                 </button>
               )}
             </div>
-          ) : (
-            <div className="space-y-1">
-              {filteredNodes.map(node => (
-                <TreeNodeComponent
-                  key={node.id}
-                  node={node}
-                  level={0}
-                  isExpanded={expandedNodes.has(node.id)}
-                  isSelected={selectedNode?.id === node.id}
-                  onToggleExpand={() => toggleExpand(node.id)}
-                  onSelect={() => setSelectedNode(node)}
-                  expandedNodes={expandedNodes}
-                  onToggleChild={toggleExpand}
-                  searchQuery={searchQuery}
-                />
-              ))}
+
+            {/* Tree Container */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {filteredNodes.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">
+                    {searchQuery ? `No results for "${searchQuery}"` : 'No data available'}
+                  </p>
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {filteredNodes.map(node => (
+                    <TreeNodeComponent
+                      key={node.id}
+                      node={node}
+                      level={0}
+                      isExpanded={expandedNodes.has(node.id)}
+                      isSelected={selectedNode?.id === node.id}
+                      onToggleExpand={() => toggleExpand(node.id)}
+                      onSelect={() => setSelectedNode(node)}
+                      expandedNodes={expandedNodes}
+                      onToggleChild={toggleExpand}
+                      onSelectNode={setSelectedNode}
+                      selectedNodeId={selectedNode?.id || null}
+                      searchQuery={searchQuery}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        ) : viewMode === 'users' ? (
+          /* All Users View */
+          <AllUsersView
+            selectedUser={selectedUser}
+            onSelectUser={(user: ComprehensiveUser) => setSelectedUser(user)}
+            onRefresh={refetch}
+          />
+        ) : (
+          /* Data Integrity Diagnostic View */
+          <div className="p-6 overflow-y-auto">
+            <DataIntegrityDiagnostic />
+          </div>
+        )}
       </div>
 
-      {/* Right Panel - Details */}
-      <div className="flex-1 p-8 overflow-y-auto">
-        {selectedNode ? (
+      {/* Right Panel - Details (only show in tree view) */}
+      {viewMode === 'tree' && (
+        <div className="flex-1 p-8 overflow-y-auto">
+          {selectedNode ? (
           <div>
             <div className="mb-6">
               <div className="flex items-center gap-3 mb-2">
@@ -621,31 +712,14 @@ export function AdminTreeView() {
 
             {/* Node-specific details */}
             {selectedNode.type === 'tenant' && (
-              <div className="space-y-4">
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Tenant Information</h3>
-                  <dl className="space-y-2">
-                    <div className="flex justify-between">
-                      <dt className="text-sm text-gray-600">Slug:</dt>
-                      <dd className="text-sm font-medium text-gray-900">{selectedNode.tenantData.slug}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-sm text-gray-600">Users:</dt>
-                      <dd className="text-sm font-medium text-gray-900">{selectedNode.tenantData.userCount}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-sm text-gray-600">Groups:</dt>
-                      <dd className="text-sm font-medium text-gray-900">{selectedNode.tenantData.groupCount}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-sm text-gray-600">Created:</dt>
-                      <dd className="text-sm font-medium text-gray-900">
-                        {new Date(selectedNode.tenantData.created_at).toLocaleDateString()}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
+              <>
+                {console.log('[AdminTreeView] Rendering FacilityProfile for tenant:', selectedNode.tenantData.id, selectedNode.tenantData.name)}
+                <FacilityProfile
+                  tenantId={selectedNode.tenantData.id}
+                  tenantName={selectedNode.tenantData.name}
+                  onUpdate={refetch}
+                />
+              </>
             )}
 
             {selectedNode.type === 'group' && (
@@ -715,6 +789,26 @@ export function AdminTreeView() {
               </div>
             )}
 
+            {/* Section Node - Show helpful message */}
+            {selectedNode.type === 'section' && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-blue-900 mb-2">Section Header Selected</h3>
+                    <p className="text-sm text-blue-800 mb-3">
+                      You've selected a section header. To view details, please select a specific item from the tree:
+                    </p>
+                    <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                      <li>Click on a <strong>facility/tenant name</strong> to view facility details</li>
+                      <li>Click on a <strong>group name</strong> to view group information</li>
+                      <li>Click on a <strong>user name</strong> to view user profile</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Debug info (collapsible) */}
             <details className="mt-6">
               <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-900">
@@ -725,15 +819,16 @@ export function AdminTreeView() {
               </pre>
             </details>
           </div>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">Select a node to view details</p>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">Select a node to view details</p>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Modals */}
       {showCreateFacility && (
@@ -839,6 +934,8 @@ interface TreeNodeComponentProps {
   onSelect: () => void;
   expandedNodes: Set<string>;
   onToggleChild: (nodeId: string) => void;
+  onSelectNode: (node: TreeNode) => void;
+  selectedNodeId: string | null;
   searchQuery?: string;
 }
 
@@ -851,6 +948,8 @@ function TreeNodeComponent({
   onSelect,
   expandedNodes,
   onToggleChild,
+  onSelectNode,
+  selectedNodeId,
   searchQuery = ''
 }: TreeNodeComponentProps) {
   const hasChildren = node.children && node.children.length > 0;
@@ -937,6 +1036,39 @@ function TreeNodeComponent({
 
           {node.type === 'user' && (
             <>
+              {/* Facility and Group Info */}
+              <div className="flex items-center gap-2 mr-2">
+                {/* Facility Badge */}
+                {node.userData.tenantName ? (
+                  <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-xs">
+                    <Building2 className="w-3 h-3 text-blue-600" />
+                    <span className="text-blue-900 font-medium">{node.userData.tenantName}</span>
+                    <span className="text-blue-600">({node.userData.tenantRole})</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs">
+                    <Building2 className="w-3 h-3 text-gray-400" />
+                    <span className="text-gray-500 italic">Solo</span>
+                  </div>
+                )}
+
+                {/* Groups Badge */}
+                {node.userData.groupRoles.length > 0 ? (
+                  <div className="flex items-center gap-1 px-2 py-0.5 bg-green-50 border border-green-200 rounded text-xs">
+                    <Users className="w-3 h-3 text-green-600" />
+                    <span className="text-green-900 font-medium">
+                      {node.userData.groupRoles.length} {node.userData.groupRoles.length === 1 ? 'group' : 'groups'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs">
+                    <Users className="w-3 h-3 text-gray-400" />
+                    <span className="text-gray-500 italic">No groups</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Status Badges */}
               {node.userData.isSuperuser && <SuperUserBadge />}
               {node.userData.isCurrentUser && <CurrentUserBadge />}
               {node.userData.groupRoles.some(gr => gr.role === 'ADMIN') && <GroupAdminBadge />}
@@ -953,11 +1085,13 @@ function TreeNodeComponent({
               node={child}
               level={level + 1}
               isExpanded={expandedNodes.has(child.id)}
-              isSelected={false}
+              isSelected={selectedNodeId === child.id}
               onToggleExpand={() => onToggleChild(child.id)}
-              onSelect={() => {}}
+              onSelect={() => onSelectNode(child)}
               expandedNodes={expandedNodes}
               onToggleChild={onToggleChild}
+              onSelectNode={onSelectNode}
+              selectedNodeId={selectedNodeId}
               searchQuery={searchQuery}
             />
           ))}

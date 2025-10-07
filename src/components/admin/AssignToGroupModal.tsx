@@ -105,7 +105,7 @@ export function AssignToGroupModal({
 
       // Add to new groups
       for (const groupId of toAdd) {
-        const { error: addError } = await adminAddUserToGroup(groupId, userId, 'MEMBER');
+        const { error: addError } = await adminAddUserToGroup({ group_id: groupId, user_id: userId, role: 'MEMBER' });
         if (addError) throw addError;
       }
 

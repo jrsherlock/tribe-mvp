@@ -1,15 +1,18 @@
-
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import {Heart, MessageCircleDashed as MessageCircle, Share2, Calendar, Award, User, Users, TrendingUp, Eye, Send, Smile, Brain, HeartHandshake, Activity, Sparkles, CheckCircle} from 'lucide-react'
+import { Users, CheckCircle } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useTenant } from '../lib/tenant'
-import { listTenantFeed } from '../lib/services/checkins'
+import { listGroupFeed } from '../lib/services/checkins'
 import { listByCheckinIds, addEmoji as svcAddEmoji, addComment as svcAddComment } from '../lib/services/interactions'
-import { listProfilesByUserIds } from '../lib/services/profiles'
+import { listMembershipsByUser } from '../lib/services/groups'
+import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import PublicProfile from './PublicProfile'
+import CheckInCard from './CheckInCard'
+import AvatarFilterBar from './AvatarFilterBar'
+import DateSeparator from './DateSeparator'
 
 interface DailyCheckin {
   _id?: string
@@ -35,6 +38,18 @@ interface DailyCheckin {
   mood_emoji: string
   created_at: string
   updated_at: string
+  user_profile?: {
+    user_id: string
+    display_name: string
+    avatar_url: string
+    is_public: boolean
+  }
+}
+
+interface UserGroup {
+  id: string
+  name: string
+  description?: string
 }
 
 interface UserProfile {
@@ -68,23 +83,21 @@ const SanghaFeed: React.FC = () => {
   const [expandedCheckins, setExpandedCheckins] = useState<Set<string>>(new Set())
   const [commentInputs, setCommentInputs] = useState<Map<string, string>>(new Map())
   const [showWelcomeMessage, setShowWelcomeMessage] = useState(false)
-  const [filterMode, setFilterMode] = useState<'all' | 'today'>('all')
-
-  const reactionEmojis = ['❤️', '💪', '🙏', '👏', '🌟', '🤗', '✨', '🎉']
-
-  const mepssCategories = [
-    { key: 'mental', label: 'Mental', icon: Brain, color: 'text-primary-600' },
-    { key: 'emotional', label: 'Emotional', icon: HeartHandshake, color: 'text-accent' },
-    { key: 'physical', label: 'Physical', icon: Activity, color: 'text-primary-700' },
-    { key: 'social', label: 'Social', icon: Users, color: 'text-accent/80' },
-    { key: 'spiritual', label: 'Spiritual', icon: Sparkles, color: 'text-primary-800' }
-  ]
+  const [filterMode, setFilterMode] = useState<'all' | 'today'>('today')
+  const [filteredMemberId, setFilteredMemberId] = useState<string | null>(null)
+  const [userGroups, setUserGroups] = useState<UserGroup[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(true)
 
   const fetchInFlight = useRef(false)
   const lastKey = useRef<string | null>(null)
 
+  // Fetch user's groups on mount
   useEffect(() => {
-    const key = `${currentTenantId ?? 'none'}|${filterMode}`
+    fetchUserGroups()
+  }, [user?.userId])
+
+  useEffect(() => {
+    const key = `${user?.userId ?? 'none'}|${filterMode}`
     if (fetchInFlight.current) return
     if (lastKey.current === key && checkins.length) return
     fetchInFlight.current = true
@@ -93,7 +106,7 @@ const SanghaFeed: React.FC = () => {
       fetchInFlight.current = false
       lastKey.current = key
     })()
-  }, [currentTenantId, filterMode])
+  }, [user?.userId, filterMode])
 
   // Check URL params for filter mode
   useEffect(() => {
@@ -103,13 +116,6 @@ const SanghaFeed: React.FC = () => {
       setFilterMode('today')
     }
   }, [location.search])
-
-  // Fetch profiles after checkins are loaded
-  useEffect(() => {
-    if (checkins.length > 0) {
-      fetchPublicProfiles()
-    }
-  }, [checkins])
 
   // Show welcome message if redirected from check-in
   useEffect(() => {
@@ -135,6 +141,11 @@ const SanghaFeed: React.FC = () => {
   }, [location.state])
 
   const fetchFeed = async () => {
+    if (!user?.userId) {
+      setLoading(false)
+      return
+    }
+
     try {
       setLoading(true)
 
@@ -144,21 +155,40 @@ const SanghaFeed: React.FC = () => {
         const today = new Date().toISOString().split('T')[0]
         sinceIso = `${today}T00:00:00.000Z`
       } else {
+        // Last 7 days including today
         sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
       }
 
-      // allow tenantless global feed for dev/testing: tenant_id IS NULL
-      // we pass currentTenantId (or null) into the service which handles both cases
-
-
-      const { data: publicCheckins, error } = await listTenantFeed(currentTenantId, sinceIso)
+      // Fetch check-ins from user's groups with user profile data already joined
+      const { data: groupCheckins, error } = await listGroupFeed(user.userId, sinceIso)
       if (error) throw error
 
-      if (publicCheckins) {
-        const normalized = (publicCheckins as any[]).map(c => ({ _id: c.id ?? c._id, ...c }))
-        setCheckins(normalized as any)
-        const checkinIds = normalized.map(c => c._id).filter(Boolean)
-        if (checkinIds.length > 0) {
+      if (groupCheckins) {
+        console.log('[SanghaFeed] Received check-ins:', groupCheckins)
+        setCheckins(groupCheckins as any)
+
+        // Build profile map from the embedded user_profile data
+        const profileMap = new Map()
+        groupCheckins.forEach((checkin: any) => {
+          console.log('[SanghaFeed] Processing checkin:', {
+            user_id: checkin.user_id,
+            user_profile: checkin.user_profile
+          })
+          if (checkin.user_profile) {
+            profileMap.set(checkin.user_id, {
+              user_id: checkin.user_profile.user_id,
+              display_name: checkin.user_profile.display_name,
+              avatar_url: checkin.user_profile.avatar_url,
+              is_public: checkin.user_profile.is_public
+            })
+          }
+        })
+        console.log('[SanghaFeed] Profile map:', profileMap)
+        setPublicProfiles(profileMap)
+
+        // Fetch interactions for these check-ins
+        const checkinIds = groupCheckins.map((c: any) => c._id || c.id).filter(Boolean)
+        if (checkinIds.length > 0 && currentTenantId) {
           const { data: feedInteractions, error: err2 } = await listByCheckinIds(currentTenantId, checkinIds)
           if (err2) throw err2
           if (feedInteractions) {
@@ -174,45 +204,47 @@ const SanghaFeed: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to fetch feed:', error)
-      toast.error('Failed to load community feed')
+      toast.error('Failed to load group feed')
     } finally {
       setLoading(false)
     }
   }
 
-  const fetchPublicProfiles = async () => {
+  // Fetch user's groups for display
+  const fetchUserGroups = async () => {
+    if (!user?.userId) {
+      setGroupsLoading(false)
+      return
+    }
+
     try {
-      // First, get all unique user IDs from public check-ins
-      const userIds = [...new Set(checkins.map(checkin => checkin.user_id))];
+      setGroupsLoading(true)
 
-      if (userIds.length === 0) return;
+      // Get user's group memberships
+      const { data: memberships, error: memError } = await listMembershipsByUser(user.userId)
+      if (memError) throw memError
 
-      // Fetch profiles for all users who have public check-ins
-      // This ensures we get display names even if their profile is private
-      const { data: profiles, error } = await listProfilesByUserIds(userIds)
-      if (error) throw error
-      if (profiles) {
-        const profileMap = new Map()
-        ;(profiles as any[]).forEach(profile => {
-          profileMap.set(profile.user_id, profile)
-        })
-        setPublicProfiles(profileMap)
+      if (memberships && memberships.length > 0) {
+        const groupIds = memberships.map((m: any) => m.group_id)
+
+        // Fetch group details
+        const { data: groups, error: groupsError } = await supabase
+          .from('groups')
+          .select('id, name, description')
+          .in('id', groupIds)
+
+        if (groupsError) throw groupsError
+        if (groups) {
+          setUserGroups(groups as UserGroup[])
+        }
+      } else {
+        setUserGroups([])
       }
     } catch (error) {
-      console.error('Failed to fetch profiles for check-in authors:', error)
-      // Fallback: try to fetch all public profiles
-      try {
-        const { data: profiles, error } = await listProfilesByUserIds([])
-        if (!error && profiles) {
-          const profileMap = new Map()
-          ;(profiles as any[]).forEach(profile => {
-            profileMap.set(profile.user_id, profile)
-          })
-          setPublicProfiles(profileMap)
-        }
-      } catch (fallbackError) {
-        console.error('Failed to fetch public profiles as fallback:', fallbackError)
-      }
+      console.error('Failed to fetch user groups:', error)
+      setUserGroups([])
+    } finally {
+      setGroupsLoading(false)
     }
   }
 
@@ -309,55 +341,58 @@ const SanghaFeed: React.FC = () => {
     })
   }
 
-  const formatTimeAgo = (dateString: string) => {
-    const now = new Date()
-    const checkDate = new Date(dateString)
-    const diffInHours = Math.floor((now.getTime() - checkDate.getTime()) / (1000 * 60 * 60))
-    
-    if (diffInHours < 1) return 'Just now'
-    if (diffInHours < 24) return `${diffInHours}h ago`
-    const diffInDays = Math.floor(diffInHours / 24)
-    return `${diffInDays}d ago`
-  }
-
   const getCheckinInteractions = (checkinId: string) => {
     return interactions.get(checkinId) || []
   }
 
-  const getEmojiCounts = (checkinId: string) => {
-    const checkinInteractions = getCheckinInteractions(checkinId)
-    const emojiReactions = checkinInteractions.filter(i => i.interaction_type === 'emoji_reaction')
-    const counts: Record<string, number> = {}
-    
-    emojiReactions.forEach(reaction => {
-      if (reaction.emoji) {
-        counts[reaction.emoji] = (counts[reaction.emoji] || 0) + 1
-      }
-    })
-    
-    return counts
+  const handleFilterModeChange = (mode: 'all' | 'today') => {
+    setFilterMode(mode)
+    if (mode === 'today') {
+      setFilteredMemberId(null)
+    }
   }
 
-  const getComments = (checkinId: string) => {
-    const checkinInteractions = getCheckinInteractions(checkinId)
-    return checkinInteractions.filter(i => i.interaction_type === 'comment')
+  const handleMemberSelect = (userId: string | null) => {
+    setFilteredMemberId(userId)
   }
 
-  const getUserDisplayName = (userId: string) => {
-    const profile = publicProfiles.get(userId)
-    return profile?.display_name || 'Anonymous'
-  }
+  // Memoize filtered and grouped check-ins
+  const processedCheckins = useMemo(() => {
+    // Step 1: Filter by member if selected
+    let filtered = checkins
+    if (filterMode === 'all' && filteredMemberId) {
+      filtered = checkins.filter(c => c.user_id === filteredMemberId)
+    }
+
+    // Step 2: Group by date if in 'all' mode
+    if (filterMode === 'all') {
+      const grouped = new Map<string, DailyCheckin[]>()
+      filtered.forEach(checkin => {
+        const date = checkin.checkin_date || checkin.created_at.split('T')[0]
+        if (!grouped.has(date)) {
+          grouped.set(date, [])
+        }
+        grouped.get(date)!.push(checkin)
+      })
+
+      // Sort dates descending (most recent first)
+      const sortedDates = Array.from(grouped.keys()).sort((a, b) => b.localeCompare(a))
+      return { mode: 'grouped' as const, grouped, sortedDates }
+    }
+
+    return { mode: 'list' as const, list: filtered }
+  }, [checkins, filterMode, filteredMemberId])
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary-50 to-primary-200">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent"></div>
+      <div className="flex items-center justify-center min-h-screen bg-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 p-4 sm:p-6">
+    <div className="min-h-screen bg-slate-100 p-4 sm:p-6">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <motion.div
@@ -365,35 +400,67 @@ const SanghaFeed: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-center space-y-4"
         >
-          <h1 className="text-3xl font-bold text-primary-800">Tribe Feed</h1>
-          <p className="text-primary-700">
-            {filterMode === 'today' ? "Today's check-ins from your tribe" : "See how your tribe is doing"}
+          <h1 className="text-3xl font-bold text-slate-800">My Tribe Feed</h1>
+
+          {/* Group Context */}
+          {!groupsLoading && userGroups.length > 0 && (
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <Users className="w-5 h-5 text-blue-600" />
+              <p className="text-slate-700 font-medium">
+                {userGroups.length === 1 ? (
+                  <>Viewing: <span className="text-blue-700 font-semibold">{userGroups[0].name}</span></>
+                ) : (
+                  <>Your Groups: <span className="text-blue-700 font-semibold">{userGroups.map(g => g.name).join(', ')}</span></>
+                )}
+              </p>
+            </div>
+          )}
+
+          {!groupsLoading && userGroups.length === 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
+              <p className="text-yellow-800 font-medium">You're not in any groups yet</p>
+              <p className="text-sm text-yellow-700 mt-1">Join a group to see check-ins from your tribe</p>
+            </div>
+          )}
+
+          <p className="text-slate-600">
+            {filterMode === 'today' ? "Today's check-ins from your group" : "Last 7 days of check-ins from your group"}
           </p>
 
           {/* Filter Toggle */}
           <div className="flex items-center justify-center space-x-2">
             <button
-              onClick={() => setFilterMode('all')}
-              className={`px-4 py-2 rounded-xl font-medium transition-all border ${
-                filterMode === 'all'
-                  ? 'bg-accent-600 text-white shadow-md border-accent-600'
-                  : 'bg-white text-primary-700 hover:bg-primary-50 border-primary-200 shadow-sm'
-              }`}
-            >
-              All Recent
-            </button>
-            <button
-              onClick={() => setFilterMode('today')}
+              onClick={() => handleFilterModeChange('today')}
               className={`px-4 py-2 rounded-xl font-medium transition-all border ${
                 filterMode === 'today'
-                  ? 'bg-accent-600 text-white shadow-md border-accent-600'
-                  : 'bg-white text-primary-700 hover:bg-primary-50 border-primary-200 shadow-sm'
+                  ? 'bg-blue-500 text-white shadow-md border-blue-500'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300 shadow-sm'
               }`}
             >
               Today Only
             </button>
+            <button
+              onClick={() => handleFilterModeChange('all')}
+              className={`px-4 py-2 rounded-xl font-medium transition-all border ${
+                filterMode === 'all'
+                  ? 'bg-blue-500 text-white shadow-md border-blue-500'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300 shadow-sm'
+              }`}
+            >
+              Last 7 Days
+            </button>
           </div>
         </motion.div>
+
+        {/* Avatar Filter Bar - Only show in 'all' mode */}
+        {filterMode === 'all' && (
+          <AvatarFilterBar
+            checkins={checkins}
+            profiles={publicProfiles}
+            selectedId={filteredMemberId}
+            onSelectMember={handleMemberSelect}
+          />
+        )}
 
         {/* Welcome Message */}
         <AnimatePresence>
@@ -402,15 +469,15 @@ const SanghaFeed: React.FC = () => {
               initial={{ opacity: 0, y: -20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              className="bg-gradient-to-r from-success-50 to-sage-50 border border-success-200 rounded-xl p-4 shadow-soft"
+              className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 shadow-sm"
             >
               <div className="flex items-center space-x-3">
                 <div className="flex-shrink-0">
-                  <CheckCircle className="w-6 h-6 text-success-600" />
+                  <CheckCircle className="w-6 h-6 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-success-800">Welcome to the Tribe Feed!</h3>
-                  <p className="text-sm text-success-700">
+                  <h3 className="font-semibold text-green-800">Welcome to the Tribe Feed!</h3>
+                  <p className="text-sm text-green-700">
                     Your check-in has been shared with your tribe. See how others are doing on their recovery journey.
                   </p>
                 </div>
@@ -421,246 +488,66 @@ const SanghaFeed: React.FC = () => {
 
         {/* Check-ins */}
         <div className="space-y-4">
-          {checkins.map((checkin, index) => {
-            const profile = publicProfiles.get(checkin.user_id)
-            const isExpanded = expandedCheckins.has(checkin._id || '')
-            const emojiCounts = getEmojiCounts(checkin._id || '')
-            const comments = getComments(checkin._id || '')
-            
-            return (
-              <motion.div
-                key={checkin._id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 + index * 0.1 }}
-                className="bg-secondary rounded-2xl p-6 shadow-lg border border-primary-200"
-              >
-                {/* Check-in Header */}
-                <div className="flex items-start space-x-4 mb-4">
-                  <div
-                    className="w-12 h-12 rounded-full overflow-hidden bg-accent-600 flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-accent-600/50 transition-all"
-                    onClick={() => handleUserClick(checkin.user_id)}
-                  >
-                    {profile?.avatar_url ? (
-                      <img 
-                        src={profile.avatar_url} 
-                        alt={profile.display_name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <User className="w-6 h-6 text-white" />
-                    )}
-                  </div>
-                  
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleUserClick(checkin.user_id)}
-                        className="font-semibold text-primary-800 hover:text-accent transition-colors"
-                      >
-                        {profile?.display_name || 'Anonymous'}
-                      </button>
-                      {profile?.is_public && checkin.user_id !== user?.userId && (
-                        <Eye size={14} className="text-primary-400" />
-                      )}
-                      <span className="text-2xl">{checkin.mood_emoji}</span>
-                    </div>
-                    <div className="text-sm text-primary-500">
-                      {formatTimeAgo(checkin.created_at)} • Daily Check-in
-                    </div>
-                  </div>
-                </div>
+          {processedCheckins.mode === 'list' ? (
+            // Today mode - simple list
+            processedCheckins.list.map((checkin, index) => {
+              const profile = publicProfiles.get(checkin.user_id)
+              const checkinInteractions = getCheckinInteractions(checkin._id || '')
+              const isExpanded = expandedCheckins.has(checkin._id || '')
 
-                {/* MEPSS Ratings Summary */}
-                <div className="grid grid-cols-5 gap-2 mb-4">
-                  {mepssCategories.map(category => {
-                    const IconComponent = category.icon
-                    const rating = checkin[`${category.key}_rating` as keyof DailyCheckin] as number
-                    const emojis = checkin[`${category.key}_emojis` as keyof DailyCheckin] as string[] || []
-                    
+              return (
+                <CheckInCard
+                  key={checkin._id}
+                  checkin={checkin}
+                  profile={profile}
+                  interactions={checkinInteractions}
+                  isExpanded={isExpanded}
+                  currentUserId={user?.userId}
+                  commentInput={commentInputs.get(checkin._id || '') || ''}
+                  animationIndex={index}
+                  onToggleExpand={toggleCheckinExpansion}
+                  onUserClick={handleUserClick}
+                  onAddEmoji={addEmojiReaction}
+                  onAddComment={addComment}
+                  onUpdateCommentInput={updateCommentInput}
+                />
+              )
+            })
+          ) : (
+            // Last 7 Days mode - grouped by date
+            processedCheckins.sortedDates.map(date => {
+              const dateCheckins = processedCheckins.grouped.get(date) || []
+
+              return (
+                <React.Fragment key={date}>
+                  <DateSeparator date={date} />
+                  {dateCheckins.map((checkin, index) => {
+                    const profile = publicProfiles.get(checkin.user_id)
+                    const checkinInteractions = getCheckinInteractions(checkin._id || '')
+                    const isExpanded = expandedCheckins.has(checkin._id || '')
+
                     return (
-                      <div key={category.key} className="text-center">
-                        <div className={`w-8 h-8 mx-auto mb-1 ${category.color}`}>
-                          <IconComponent className="w-full h-full" />
-                        </div>
-                        <div className="text-lg font-bold text-primary-800">{rating}</div>
-                        <div className="text-xs text-primary-600">{category.label}</div>
-                        {emojis.length > 0 && (
-                          <div className="text-sm mt-1">
-                            {emojis.slice(0, 2).join('')}
-                            {emojis.length > 2 && '...'}
-                          </div>
-                        )}
-                      </div>
+                      <CheckInCard
+                        key={checkin._id}
+                        checkin={checkin}
+                        profile={profile}
+                        interactions={checkinInteractions}
+                        isExpanded={isExpanded}
+                        currentUserId={user?.userId}
+                        commentInput={commentInputs.get(checkin._id || '') || ''}
+                        animationIndex={index}
+                        onToggleExpand={toggleCheckinExpansion}
+                        onUserClick={handleUserClick}
+                        onAddEmoji={addEmojiReaction}
+                        onAddComment={addComment}
+                        onUpdateCommentInput={updateCommentInput}
+                      />
                     )
                   })}
-                </div>
-
-                {/* Gratitude Preview */}
-                {checkin.gratitude && checkin.gratitude.length > 0 && (
-                  <div className="bg-primary-50 rounded-xl p-3 mb-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Heart className="w-4 h-4 text-accent" />
-                      <span className="text-sm font-medium text-primary-700">Grateful for:</span>
-                    </div>
-                    <div className="text-sm text-primary-800">
-                      {checkin.gratitude.slice(0, 2).map((item, idx) => (
-                        <div key={idx} className="flex items-center space-x-1">
-                          <span className="text-accent">•</span>
-                          <span>{item}</span>
-                        </div>
-                      ))}
-                      {checkin.gratitude.length > 2 && (
-                        <button
-                          onClick={() => toggleCheckinExpansion(checkin._id || '')}
-                          className="text-accent hover:text-accent/80 text-sm mt-1"
-                        >
-                          +{checkin.gratitude.length - 2} more
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Expanded Details */}
-                <AnimatePresence>
-                  {isExpanded && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="space-y-3 mb-4"
-                    >
-                      {mepssCategories.map(category => {
-                        const notes = checkin[`${category.key}_notes` as keyof DailyCheckin] as string
-                        const emojis = checkin[`${category.key}_emojis` as keyof DailyCheckin] as string[] || []
-                        
-                        if (!notes && emojis.length === 0) return null
-                        
-                        return (
-                          <div key={category.key} className="bg-primary-50 rounded-xl p-3">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <category.icon className={`w-4 h-4 ${category.color}`} />
-                              <span className="text-sm font-medium text-primary-700">{category.label}</span>
-                              {emojis.length > 0 && (
-                                <div className="text-sm">
-                                  {emojis.join(' ')}
-                                </div>
-                              )}
-                            </div>
-                            {notes && (
-                              <p className="text-sm text-primary-800">{notes}</p>
-                            )}
-                          </div>
-                        )
-                      })}
-                      
-                      {checkin.gratitude && checkin.gratitude.length > 2 && (
-                        <div className="bg-primary-50 rounded-xl p-3">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <Heart className="w-4 h-4 text-accent" />
-                            <span className="text-sm font-medium text-primary-700">All Gratitude</span>
-                          </div>
-                          <div className="space-y-1">
-                            {checkin.gratitude.map((item, idx) => (
-                              <div key={idx} className="flex items-center space-x-1 text-sm text-primary-800">
-                                <span className="text-accent">•</span>
-                                <span>{item}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Emoji Reactions */}
-                {Object.keys(emojiCounts).length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {Object.entries(emojiCounts).map(([emoji, count]) => (
-                      <div
-                        key={emoji}
-                        className="bg-primary-100 rounded-full px-3 py-1 text-sm flex items-center space-x-1"
-                      >
-                        <span>{emoji}</span>
-                        <span className="text-primary-700">{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex items-center justify-between pt-4 border-t border-primary-200">
-                  <div className="flex items-center space-x-4">
-                    <button
-                      onClick={() => toggleCheckinExpansion(checkin._id || '')}
-                      className="flex items-center space-x-2 text-primary-500 hover:text-blue-500 transition-colors"
-                    >
-                      <TrendingUp size={18} />
-                      <span className="text-sm">{isExpanded ? 'Less' : 'Details'}</span>
-                    </button>
-                    
-                    <button className="flex items-center space-x-2 text-primary-500 hover:text-blue-500 transition-colors">
-                      <MessageCircle size={18} />
-                      <span className="text-sm">{comments.length}</span>
-                    </button>
-                  </div>
-
-                  {/* Quick Emoji Reactions */}
-                  <div className="flex items-center space-x-1">
-                    {reactionEmojis.slice(0, 4).map(emoji => (
-                      <button
-                        key={emoji}
-                        onClick={() => addEmojiReaction(checkin._id || '', emoji)}
-                        className="text-lg hover:scale-125 transition-transform p-1"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Comments Section */}
-                {comments.length > 0 && (
-                  <div className="mt-4 space-y-3">
-                    {comments.map((comment, idx) => (
-                      <div key={idx} className="bg-primary-50 rounded-xl p-3">
-                        <div className="flex items-center space-x-2 mb-1">
-                          <span className="font-medium text-primary-800 text-sm">
-                            {getUserDisplayName(comment.user_id)}
-                          </span>
-                          <span className="text-xs text-primary-500">
-                            {formatTimeAgo(comment.created_at)}
-                          </span>
-                        </div>
-                        <p className="text-sm text-primary-700">{comment.content}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Comment Input */}
-                <div className="mt-4 flex items-center space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Add a supportive comment..."
-                    value={commentInputs.get(checkin._id || '') || ''}
-                    onChange={(e) => updateCommentInput(checkin._id || '', e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addComment(checkin._id || '')}
-                    className="flex-1 p-2 border border-primary-200 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent bg-secondary text-sm"
-                  />
-                  <button
-                    onClick={() => addComment(checkin._id || '')}
-                    disabled={!commentInputs.get(checkin._id || '')?.trim()}
-                    className="p-2 bg-accent-600 text-white rounded-lg hover:bg-accent-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Send size={16} />
-                  </button>
-                </div>
-              </motion.div>
-            )
-          })}
+                </React.Fragment>
+              )
+            })
+          )}
         </div>
 
         {checkins.length === 0 && (
@@ -669,9 +556,9 @@ const SanghaFeed: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             className="text-center py-12"
           >
-            <Users className="w-16 h-16 text-primary-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-primary-600 mb-2">No check-ins shared yet</h3>
-            <p className="text-primary-500">Complete your daily check-in and share it with the community!</p>
+            <Users className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-slate-600 mb-2">No check-ins shared yet</h3>
+            <p className="text-slate-500">Complete your daily check-in and share it with the community!</p>
           </motion.div>
         )}
       </div>
