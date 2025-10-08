@@ -225,7 +225,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
                 <div className="bg-sand-50 border border-sand-200 rounded-xl p-4">
                   <h3 className="font-semibold text-sand-800 mb-2 flex items-center space-x-2">
                     <Brain className="w-5 h-5 text-sage-600" />
-                    <span>Mental Notes</span>
+                    <span>Mentally</span>
                   </h3>
                   <p className="text-sand-700 leading-relaxed">{checkin.mental_notes}</p>
                 </div>
@@ -235,7 +235,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
                 <div className="bg-sand-50 border border-sand-200 rounded-xl p-4">
                   <h3 className="font-semibold text-sand-800 mb-2 flex items-center space-x-2">
                     <Heart className="w-5 h-5 text-sunrise-600" />
-                    <span>Emotional Notes</span>
+                    <span>Emotionally</span>
                   </h3>
                   <p className="text-sand-700 leading-relaxed">{checkin.emotional_notes}</p>
                 </div>
@@ -245,7 +245,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
                 <div className="bg-sand-50 border border-sand-200 rounded-xl p-4">
                   <h3 className="font-semibold text-sand-800 mb-2 flex items-center space-x-2">
                     <Activity className="w-5 h-5 text-ocean-600" />
-                    <span>Physical Notes</span>
+                    <span>Physically</span>
                   </h3>
                   <p className="text-sand-700 leading-relaxed">{checkin.physical_notes}</p>
                 </div>
@@ -255,7 +255,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
                 <div className="bg-sand-50 border border-sand-200 rounded-xl p-4">
                   <h3 className="font-semibold text-sand-800 mb-2 flex items-center space-x-2">
                     <Users className="w-5 h-5 text-sand-600" />
-                    <span>Social Notes</span>
+                    <span>Socially</span>
                   </h3>
                   <p className="text-sand-700 leading-relaxed">{checkin.social_notes}</p>
                 </div>
@@ -265,7 +265,7 @@ const InteractiveCheckinModal: React.FC<InteractiveCheckinModalProps> = ({
                 <div className="bg-sand-50 border border-sand-200 rounded-xl p-4">
                   <h3 className="font-semibold text-sand-800 mb-2 flex items-center space-x-2">
                     <Sparkles className="w-5 h-5 text-sage-700" />
-                    <span>Spiritual Notes</span>
+                    <span>Spiritually</span>
                   </h3>
                   <p className="text-sand-700 leading-relaxed">{checkin.spiritual_notes}</p>
                 </div>

@@ -183,7 +183,7 @@ const CheckinDetailModal: React.FC<CheckinDetailModalProps> = ({ checkin, onClos
                 <div className="bg-secondary-50 border border-secondary-200 rounded-xl p-4">
                   <h3 className="font-semibold text-secondary-800 mb-2 flex items-center space-x-2">
                     <Brain className="w-5 h-5" />
-                    <span>Mental Notes</span>
+                    <span>Mentally</span>
                   </h3>
                   <p className="text-secondary-700">{checkin.mental_notes}</p>
                 </div>
@@ -193,7 +193,7 @@ const CheckinDetailModal: React.FC<CheckinDetailModalProps> = ({ checkin, onClos
                 <div className="bg-secondary-50 border border-secondary-200 rounded-xl p-4">
                   <h3 className="font-semibold text-secondary-800 mb-2 flex items-center space-x-2">
                     <Sparkles className="w-5 h-5" />
-                    <span>Spiritual Notes</span>
+                    <span>Spiritually</span>
                   </h3>
                   <p className="text-secondary-700">{checkin.spiritual_notes}</p>
                 </div>

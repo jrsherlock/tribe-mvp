@@ -90,7 +90,7 @@ const AlbumGallery: React.FC<AlbumGalleryProps> = ({ groupId, isAdmin }) => {
 
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-600 text-white rounded-xl font-medium transition-colors shadow-lg"
+          className="flex items-center gap-2 px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-medium transition-colors shadow-lg"
         >
           <Plus className="w-5 h-5" />
           Create Album

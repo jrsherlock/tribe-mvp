@@ -148,7 +148,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ groupId, isAdmin }) =
             onClick={() => setViewMode('grid')}
             className={`p-2 rounded-lg transition-colors ${
               viewMode === 'grid'
-                ? 'bg-accent text-white'
+                ? 'bg-accent-600 text-white'
                 : 'bg-primary-100 text-primary-600 hover:bg-primary-200'
             }`}
           >
@@ -158,7 +158,7 @@ const MemberDirectory: React.FC<MemberDirectoryProps> = ({ groupId, isAdmin }) =
             onClick={() => setViewMode('list')}
             className={`p-2 rounded-lg transition-colors ${
               viewMode === 'list'
-                ? 'bg-accent text-white'
+                ? 'bg-accent-600 text-white'
                 : 'bg-primary-100 text-primary-600 hover:bg-primary-200'
             }`}
           >

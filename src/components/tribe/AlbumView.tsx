@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Upload, Trash2, X, Image as ImageIcon } from 'lucide-react'
-import { listAlbumPhotos, uploadPhotoToAlbum, deletePhoto, type GroupPhotoAlbum, type GroupPhoto } from '../../lib/services/groupPhotos'
+import { ArrowLeft, Upload, Trash2, Image as ImageIcon, Star } from 'lucide-react'
+import { listAlbumPhotos, uploadPhotoToAlbum, deletePhoto, setAlbumCover, type GroupPhotoAlbum, type GroupPhoto } from '../../lib/services/groupPhotos'
 import { useAuth } from '../../hooks/useAuth'
 import toast from 'react-hot-toast'
+import ImageLightbox from '../ImageLightbox'
 
 interface AlbumViewProps {
   album: GroupPhotoAlbum
@@ -17,7 +18,9 @@ const AlbumView: React.FC<AlbumViewProps> = ({ album, groupId, isAdmin, onBack }
   const [photos, setPhotos] = useState<GroupPhoto[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
-  const [selectedPhoto, setSelectedPhoto] = useState<GroupPhoto | null>(null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [localAlbum, setLocalAlbum] = useState<GroupPhotoAlbum>(album)
 
   useEffect(() => {
     fetchPhotos()
@@ -84,10 +87,39 @@ const AlbumView: React.FC<AlbumViewProps> = ({ album, groupId, isAdmin, onBack }
 
       toast.success('Photo deleted successfully')
       fetchPhotos()
-      setSelectedPhoto(null)
+      setLightboxOpen(false)
     } catch (error) {
       console.error('Failed to delete photo:', error)
       toast.error('Failed to delete photo')
+    }
+  }
+
+  const handleDeletePhotoByIndex = async (index: number) => {
+    const photo = photos[index]
+    if (!photo) return
+    await handleDelete(photo.id, photo.user_id)
+  }
+
+  const handleSetAlbumCover = async (index: number) => {
+    if (!isAdmin) {
+      toast.error('Only group admins can set the album cover')
+      return
+    }
+
+    const photo = photos[index]
+    if (!photo) return
+
+    try {
+      const { error } = await setAlbumCover(album.id, photo.photo_url)
+      if (error) throw error
+
+      // Update local album state
+      setLocalAlbum(prev => ({ ...prev, cover_photo_url: photo.photo_url }))
+
+      toast.success('Album cover updated! ⭐')
+    } catch (error) {
+      console.error('Failed to set album cover:', error)
+      toast.error('Failed to set album cover')
     }
   }
 
@@ -124,7 +156,7 @@ const AlbumView: React.FC<AlbumViewProps> = ({ album, groupId, isAdmin, onBack }
         <label
           htmlFor="photo-upload"
           className={`
-            flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-600 
+            flex items-center gap-2 px-4 py-2 bg-accent-600 hover:bg-accent-700
             text-white rounded-xl font-medium cursor-pointer transition-colors shadow-lg
             ${uploading ? 'opacity-50 cursor-not-allowed' : ''}
           `}
@@ -172,13 +204,24 @@ const AlbumView: React.FC<AlbumViewProps> = ({ album, groupId, isAdmin, onBack }
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: index * 0.05 }}
               className="aspect-square bg-primary-100 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow relative group cursor-pointer"
-              onClick={() => setSelectedPhoto(photo)}
+              onClick={() => {
+                setLightboxIndex(index)
+                setLightboxOpen(true)
+              }}
             >
               <img
                 src={photo.photo_url}
                 alt={photo.caption || 'Group photo'}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
               />
+
+              {/* Cover Photo Badge */}
+              {localAlbum.cover_photo_url === photo.photo_url && (
+                <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-lg">
+                  <Star className="w-3 h-3 fill-current" />
+                  Cover
+                </div>
+              )}
 
               {/* Delete Button (visible to photo owner and admins) */}
               {(isAdmin || photo.user_id === user?.userId) && (
@@ -187,7 +230,7 @@ const AlbumView: React.FC<AlbumViewProps> = ({ album, groupId, isAdmin, onBack }
                     e.stopPropagation()
                     handleDelete(photo.id, photo.user_id)
                   }}
-                  className="absolute top-2 right-2 p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg shadow-lg transition-all hover:scale-110"
+                  className="absolute top-2 right-2 p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg shadow-lg transition-all hover:scale-110 opacity-0 group-hover:opacity-100"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -204,33 +247,22 @@ const AlbumView: React.FC<AlbumViewProps> = ({ album, groupId, isAdmin, onBack }
         </div>
       )}
 
-      {/* Lightbox */}
-      {selectedPhoto && (
-        <div
-          className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedPhoto(null)}
-        >
-          <button
-            onClick={() => setSelectedPhoto(null)}
-            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
-
-          <div className="max-w-4xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={selectedPhoto.photo_url}
-              alt={selectedPhoto.caption || 'Group photo'}
-              className="max-w-full max-h-[80vh] object-contain rounded-lg"
-            />
-            {selectedPhoto.caption && (
-              <div className="bg-white rounded-b-lg p-4 mt-2">
-                <p className="text-primary-800">{selectedPhoto.caption}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Image Lightbox */}
+      <ImageLightbox
+        images={photos.map(photo => ({
+          src: photo.photo_url,
+          alt: photo.caption || 'Group photo',
+          caption: photo.caption || undefined
+        }))}
+        open={lightboxOpen}
+        index={lightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+        onIndexChange={setLightboxIndex}
+        onDelete={(isAdmin || photos[lightboxIndex]?.user_id === user?.userId) ? handleDeletePhotoByIndex : undefined}
+        canDelete={isAdmin || photos[lightboxIndex]?.user_id === user?.userId}
+        onSetCover={isAdmin ? handleSetAlbumCover : undefined}
+        canSetCover={isAdmin}
+      />
     </div>
   )
 }

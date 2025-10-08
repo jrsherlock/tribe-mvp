@@ -205,7 +205,7 @@ const EventFormModal: React.FC<EventFormModalProps> = ({ groupId, onClose, onSuc
                 className={`
                   flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all
                   ${formData.location_type === 'virtual'
-                    ? 'bg-accent text-white shadow-lg'
+                    ? 'bg-accent-600 text-white shadow-lg'
                     : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
                   }
                 `}
@@ -218,7 +218,7 @@ const EventFormModal: React.FC<EventFormModalProps> = ({ groupId, onClose, onSuc
                 className={`
                   flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all
                   ${formData.location_type === 'physical'
-                    ? 'bg-accent text-white shadow-lg'
+                    ? 'bg-accent-600 text-white shadow-lg'
                     : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
                   }
                 `}
@@ -262,7 +262,7 @@ const EventFormModal: React.FC<EventFormModalProps> = ({ groupId, onClose, onSuc
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 px-4 py-3 bg-accent hover:bg-accent-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 px-4 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? (
                 <span className="flex items-center justify-center gap-2">

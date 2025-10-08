@@ -117,6 +117,18 @@ export const useCheckinInteractions = (checkinId: string) => {
 
       await svcAddComment({ tenant_id: currentTenantId || null, user_id: user.userId, checkin_id: checkinId, content: newInteraction.content! });
 
+      // Fetch current user's profile if not already in the map
+      if (!profiles.has(user.userId)) {
+        const { data: userProfiles, error: profileError } = await listProfilesByUserIds([user.userId]);
+        if (!profileError && userProfiles && userProfiles.length > 0) {
+          setProfiles(prev => {
+            const newMap = new Map(prev);
+            newMap.set(user.userId, userProfiles[0] as UserProfile);
+            return newMap;
+          });
+        }
+      }
+
       // Update local state
       setInteractions(prev => [...prev, newInteraction]);
       setCommentInput('');

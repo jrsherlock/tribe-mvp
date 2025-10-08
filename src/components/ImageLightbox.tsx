@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronLeft, ChevronRight, Download, Trash2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download, Trash2, Star } from 'lucide-react';
 
 export interface LightboxImage {
   src: string;
@@ -16,6 +16,8 @@ interface ImageLightboxProps {
   onIndexChange?: (index: number) => void;
   onDelete?: (index: number) => void;
   canDelete?: boolean;
+  onSetCover?: (index: number) => void;
+  canSetCover?: boolean;
 }
 
 /**
@@ -56,7 +58,9 @@ export function ImageLightbox({
   onClose,
   onIndexChange,
   onDelete,
-  canDelete = false
+  canDelete = false,
+  onSetCover,
+  canSetCover = false
 }: ImageLightboxProps) {
   // Early return if images array is empty or index is out of bounds
   if (images.length === 0 || index < 0 || index >= images.length) {
@@ -176,6 +180,21 @@ export function ImageLightbox({
 
             {/* Right Controls */}
             <div className="flex items-center gap-2">
+              {/* Set as Cover Button */}
+              {canSetCover && onSetCover && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSetCover(index);
+                  }}
+                  className="p-2 text-white hover:bg-yellow-500/20 rounded-full transition-colors"
+                  aria-label="Set as cover image"
+                  title="Set as cover image"
+                >
+                  <Star className="w-6 h-6" />
+                </button>
+              )}
+
               {/* Delete Button */}
               {canDelete && onDelete && (
                 <button

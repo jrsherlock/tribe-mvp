@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { User, X } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface UserProfile {
   _id?: string
@@ -54,10 +55,12 @@ const AvatarFilterBar: React.FC<AvatarFilterBarProps> = ({
   selectedId,
   onSelectMember
 }) => {
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+
   // Derive unique users from checkins
   const uniqueUsers = useMemo(() => {
     const userMap = new Map<string, { userId: string; profile: UserProfile | undefined; count: number }>()
-    
+
     checkins.forEach(checkin => {
       const existing = userMap.get(checkin.user_id)
       if (existing) {
@@ -70,7 +73,7 @@ const AvatarFilterBar: React.FC<AvatarFilterBarProps> = ({
         })
       }
     })
-    
+
     return Array.from(userMap.values()).sort((a, b) => b.count - a.count)
   }, [checkins, profiles])
 
@@ -93,44 +96,84 @@ const AvatarFilterBar: React.FC<AvatarFilterBarProps> = ({
         )}
       </div>
       
-      <div className="flex items-center space-x-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+      <div className="flex items-center gap-3 overflow-x-auto overflow-y-visible pb-2 pt-14 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
         {uniqueUsers.map(({ userId, profile, count }) => {
           const isSelected = selectedId === userId
-          
+          const isHovered = hoveredId === userId
+
           return (
-            <button
-              key={userId}
-              onClick={() => onSelectMember(userId)}
-              className={`flex-shrink-0 flex flex-col items-center space-y-1 transition-all ${
-                isSelected ? 'scale-105' : 'hover:scale-105'
-              }`}
-            >
-              <div
-                className={`w-12 h-12 rounded-full overflow-hidden flex items-center justify-center transition-all ${
-                  isSelected
-                    ? 'ring-2 ring-blue-500 ring-offset-2'
-                    : 'ring-1 ring-slate-200 hover:ring-blue-300'
-                } ${profile?.avatar_url ? '' : 'bg-blue-500'}`}
+            <div key={userId} className="relative flex-shrink-0">
+              <motion.button
+                onClick={() => onSelectMember(userId)}
+                onMouseEnter={() => setHoveredId(userId)}
+                onMouseLeave={() => setHoveredId(null)}
+                className="flex flex-col items-center gap-1 focus:outline-none"
+                whileHover={{ y: -4 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 17 }}
               >
-                {profile?.avatar_url ? (
-                  <img
-                    src={profile.avatar_url}
-                    alt={profile.display_name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <User className="w-6 h-6 text-white" />
+                {/* Avatar Container with macOS Dock-style magnification */}
+                <motion.div
+                  className="relative"
+                  animate={{
+                    scale: isHovered ? 1.2 : isSelected ? 1.05 : 1,
+                  }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                >
+                  {/* Avatar - clean design like Dashboard */}
+                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-md">
+                    {profile?.avatar_url ? (
+                      <img
+                        src={profile.avatar_url}
+                        alt={profile.display_name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                        <User className="w-8 h-8 text-white" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Check-in count badge */}
+                  <motion.div
+                    className="absolute -bottom-1 -right-1 bg-blue-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-md border-2 border-white"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.1 }}
+                  >
+                    {count}
+                  </motion.div>
+                </motion.div>
+
+                {/* Name label */}
+                <div className="text-center max-w-[70px]">
+                  <p className={`text-xs font-medium truncate transition-colors ${
+                    isSelected ? 'text-blue-600' : 'text-slate-600'
+                  }`}>
+                    {profile?.display_name || 'Anonymous'}
+                  </p>
+                </div>
+              </motion.button>
+
+              {/* Tooltip on hover */}
+              <AnimatePresence>
+                {isHovered && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute -top-12 left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
+                  >
+                    <div className="bg-slate-900 text-white text-sm font-medium px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap">
+                      {profile?.display_name || 'Anonymous'}
+                      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                    </div>
+                  </motion.div>
                 )}
-              </div>
-              <div className="text-center">
-                <p className={`text-xs font-medium truncate max-w-[60px] ${
-                  isSelected ? 'text-blue-600' : 'text-slate-600'
-                }`}>
-                  {profile?.display_name || 'Anonymous'}
-                </p>
-                <p className="text-xs text-slate-400">{count}</p>
-              </div>
-            </button>
+              </AnimatePresence>
+            </div>
           )
         })}
       </div>

@@ -8,6 +8,7 @@ import { listGroupFeed } from '../lib/services/checkins'
 import { listByCheckinIds, addEmoji as svcAddEmoji, addComment as svcAddComment } from '../lib/services/interactions'
 import { listMembershipsByUser } from '../lib/services/groups'
 import { supabase } from '../lib/supabase'
+import { getCentralTimeToday, getCentralDateNDaysAgo } from '../lib/utils/timezone'
 import toast from 'react-hot-toast'
 import PublicProfile from './PublicProfile'
 import CheckInCard from './CheckInCard'
@@ -152,11 +153,13 @@ const SanghaFeed: React.FC = () => {
       // Determine date filter based on mode
       let sinceIso: string | undefined
       if (filterMode === 'today') {
-        const today = new Date().toISOString().split('T')[0]
-        sinceIso = `${today}T00:00:00.000Z`
+        // Use Central Time date-only for correct filtering on checkin_date
+        const today = getCentralTimeToday()
+        sinceIso = today
       } else {
-        // Last 7 days including today
-        sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        // Last 7 days including today, in Central Time using checkin_date
+        const sevenDaysAgo = getCentralDateNDaysAgo(6)
+        sinceIso = sevenDaysAgo
       }
 
       // Fetch check-ins from user's groups with user profile data already joined
@@ -165,11 +168,11 @@ const SanghaFeed: React.FC = () => {
 
       if (groupCheckins) {
         console.log('[SanghaFeed] Received check-ins:', groupCheckins)
-        setCheckins(groupCheckins as any)
+        setCheckins(groupCheckins as DailyCheckin[])
 
         // Build profile map from the embedded user_profile data
-        const profileMap = new Map()
-        groupCheckins.forEach((checkin: any) => {
+        const profileMap = new Map<string, UserProfile>()
+        ;(groupCheckins as DailyCheckin[]).forEach((checkin) => {
           console.log('[SanghaFeed] Processing checkin:', {
             user_id: checkin.user_id,
             user_profile: checkin.user_profile
@@ -187,16 +190,16 @@ const SanghaFeed: React.FC = () => {
         setPublicProfiles(profileMap)
 
         // Fetch interactions for these check-ins
-        const checkinIds = groupCheckins.map((c: any) => c._id || c.id).filter(Boolean)
+        const checkinIds = (groupCheckins as DailyCheckin[]).map((c) => c._id || (c as any).id).filter(Boolean) as string[]
         if (checkinIds.length > 0 && currentTenantId) {
           const { data: feedInteractions, error: err2 } = await listByCheckinIds(currentTenantId, checkinIds)
           if (err2) throw err2
           if (feedInteractions) {
-            const interactionMap = new Map()
-            ;(feedInteractions as any[]).forEach(interaction => {
+            const interactionMap = new Map<string, FeedInteraction[]>()
+            ;(feedInteractions as FeedInteraction[]).forEach(interaction => {
               const checkinId = interaction.checkin_id
               if (!interactionMap.has(checkinId)) interactionMap.set(checkinId, [])
-              interactionMap.get(checkinId).push(interaction)
+              interactionMap.get(checkinId)!.push(interaction)
             })
             setInteractions(interactionMap)
           }

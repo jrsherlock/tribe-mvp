@@ -10,17 +10,15 @@ import { supabase } from '../lib/supabase';
 import { listProfilesByUserIds } from '../lib/services/profiles';
 import { getCentralTimeToday } from '../lib/utils/timezone';
 import { motion, AnimatePresence } from 'framer-motion';
-import { listMembershipsByUser } from '../lib/services/groups';
-import { Calendar, Users, CheckCircle, Heart, Sparkles, Star, Zap, Shield, Flame, CalendarDays, Smile, CheckCircle2 } from 'lucide-react';
+
+import { Users, CheckCircle, Heart, Sparkles, Star, Shield, Flame, CalendarDays, Smile, CheckCircle2 } from 'lucide-react';
 import TribeCheckinCard from './TribeCheckinCard';
 import InteractiveCheckinModal from './InteractiveCheckinModal';
 import GamifiedKpiCard from './GamifiedKpiCard';
 import type { Checkin } from '../lib/services/checkins';
-import type { GroupMembership as GroupMembershipRow } from '../lib/services/groups';
+
 
 interface UserProfile { user_id: string; display_name?: string | null; avatar_url?: string | null }
-interface CheckinGroupShare { checkin_id: string; group_id: string }
-
 
 interface RecentCheckin {
   _id: string;
@@ -59,7 +57,6 @@ const Dashboard: React.FC = () => {
   const { role, isSuperUser, isFacilityAdmin, canCreateFacilities } = useUserRole(currentTenantId);
   const { streak, stats, isLoading: streakLoading, error: streakError } = useSobrietyStreak();
   const { streaks, isLoading: streaksLoading } = useUserStreaks();
-  const [recentCheckins, setRecentCheckins] = useState<RecentCheckin[]>([]);
   const [todayCheckin, setTodayCheckin] = useState<RecentCheckin | null>(null);
   const [loading, setLoading] = useState(true);
   const [tribeCheckins, setTribeCheckins] = useState<TribeCheckin[]>([]);
@@ -95,128 +92,21 @@ const Dashboard: React.FC = () => {
           setTodayCheckin(null);
         }
 
-        // Fetch today's check-ins from users in shared groups
-        if (currentTenantId) {
-          const { data: mems } = await listMembershipsByUser(user.userId)
-          const groupMems = (mems ?? []) as GroupMembershipRow[]
-          const myGroupIds: string[] = groupMems.map(m => m.group_id)
-
-          let todayGroupCheckins: Checkin[] = []
-          if (myGroupIds.length > 0) {
-            // Get all users in my groups
-            const { data: groupMemberRows, error: eGroupMembers } = await supabase
-              .from('group_memberships')
-              .select('user_id')
-              .in('group_id', myGroupIds)
-              .neq('user_id', user.userId)
-            if (eGroupMembers) throw eGroupMembers
-
-            const groupUserIds = [...new Set((groupMemberRows ?? []).map((r: { user_id: string }) => r.user_id))]
-
-            if (groupUserIds.length > 0) {
-              // Fetch today's check-ins from these users
-              const { data: rows, error: e2 } = await supabase
-                .from('daily_checkins')
-                .select('*')
-                .eq('tenant_id', currentTenantId)
-                .eq('is_private', false)
-                .in('user_id', groupUserIds)
-                .gte('checkin_date', today)
-                .lte('checkin_date', today)
-                .order('created_at', { ascending: false })
-                .limit(20)
-              if (e2) throw e2
-              todayGroupCheckins = (rows ?? []) as Checkin[]
-            }
-          }
-
-          if (todayGroupCheckins && todayGroupCheckins.length > 0) {
-            const userIds = [...new Set(todayGroupCheckins.map(checkin => checkin.user_id))];
-            console.log('[Dashboard] Fetching profiles for today group check-ins, user IDs:', userIds)
-
-            const { data: profiles, error: profileError } = await listProfilesByUserIds(userIds)
-            console.log('[Dashboard] Profiles result:', {
-              count: profiles?.length || 0,
-              error: profileError,
-              profiles: profiles?.map(p => ({ user_id: p.user_id, display_name: p.display_name }))
-            })
-
-            const profileMap = new Map<string, UserProfile>();
-            if (profiles) {
-              (profiles as UserProfile[]).forEach((profile) => {
-                profileMap.set(profile.user_id, profile);
-              });
-            }
-
-            const enrichedCheckins: RecentCheckin[] = (todayGroupCheckins as Checkin[]).map((checkin: Checkin) => {
-              const profile = profileMap.get(checkin.user_id);
-              console.log('[Dashboard] Enriching checkin:', {
-                user_id: checkin.user_id,
-                profile_found: !!profile,
-                display_name: profile?.display_name || 'Anonymous'
-              })
-
-              const id = checkin.id as string | undefined;
-              return {
-                _id: id ?? `${checkin.user_id}-${checkin.created_at}`,
-                user_id: checkin.user_id,
-                mental_rating: checkin.mental_rating,
-                emotional_rating: checkin.emotional_rating,
-                physical_rating: checkin.physical_rating,
-                social_rating: checkin.social_rating,
-                spiritual_rating: checkin.spiritual_rating,
-                mood_emoji: checkin.mood_emoji,
-                created_at: checkin.created_at as string,
-                user_name: profile?.display_name || 'Anonymous',
-                user_avatar_url: profile?.avatar_url || ''
-              } as RecentCheckin;
-            });
-
-            console.log('[Dashboard] Enriched check-ins:', enrichedCheckins.map(c => ({
-              user_id: c.user_id,
-              user_name: c.user_name
-            })))
-
-            setRecentCheckins(enrichedCheckins);
-          } else {
-            setRecentCheckins([]);
-          }
-        } else {
-          setRecentCheckins([]);
-        }
-
         // Fetch tribe check-ins for today
         if (currentTenantId) {
-          const today = new Date().toISOString().split('T')[0];
-          const { data: mems } = await listMembershipsByUser(user.userId)
-          const groupMems = (mems ?? []) as GroupMembershipRow[]
-          const myGroupIds: string[] = groupMems.map(m => m.group_id)
-
-          let tribeCheckinsList: Checkin[] = []
-          if (myGroupIds.length > 0) {
-            const { data: shareRows, error: eShares } = await supabase
-              .from('checkin_group_shares')
-              .select('checkin_id')
-              .in('group_id', myGroupIds)
-            if (eShares) throw eShares
-
-            const checkinIds = [...new Set(((shareRows ?? []) as CheckinGroupShare[]).map(r => r.checkin_id))]
-            if (checkinIds.length > 0) {
-              const { data: rows, error: e2 } = await supabase
-                .from('daily_checkins')
-                .select('*')
-                .eq('tenant_id', currentTenantId)
-                .eq('is_private', false)
-                .neq('user_id', user.userId)
-                .in('id', checkinIds)
-                .gte('checkin_date', today)
-                .lte('checkin_date', today)
-                .order('created_at', { ascending: false })
-                .limit(20)
-              if (e2) throw e2
-              tribeCheckinsList = (rows ?? []) as Checkin[]
-            }
-          }
+          // Query daily_checkins directly; RLS will ensure we only see
+          // check-ins shared with groups we belong to in this tenant
+          const { data: rows, error: e2 } = await supabase
+            .from('daily_checkins')
+            .select('*')
+            .eq('tenant_id', currentTenantId)
+            .neq('user_id', user.userId)
+            .gte('checkin_date', today)
+            .lte('checkin_date', today)
+            .order('created_at', { ascending: false })
+            .limit(50)
+          if (e2) throw e2
+          const tribeCheckinsList: Checkin[] = (rows ?? []) as Checkin[]
 
           if (tribeCheckinsList && tribeCheckinsList.length > 0) {
             const userIds = [...new Set(tribeCheckinsList.map(checkin => checkin.user_id))];
@@ -258,12 +148,17 @@ const Dashboard: React.FC = () => {
                 mood_emoji: checkin.mood_emoji,
                 grateful_for: checkin.gratitude || [],
                 mental_notes: checkin.mental_notes || '',
+                emotional_notes: checkin.emotional_notes || '',
+                physical_notes: checkin.physical_notes || '',
+                social_notes: checkin.social_notes || '',
                 spiritual_notes: checkin.spiritual_notes || '',
                 created_at: checkin.created_at as string
               } as TribeCheckin;
             });
 
             setTribeCheckins(enrichedTribeCheckins);
+          } else {
+            setTribeCheckins([])
           }
         } else {
           // Solo mode: No group check-ins to display
@@ -491,7 +386,7 @@ const Dashboard: React.FC = () => {
               <Sparkles className="w-5 h-5 text-warning-500 animate-bounce-gentle" />
             </div>
 
-            <div className="flex overflow-x-auto space-x-4 p-4 scrollbar-hide">
+            <div className="flex overflow-x-auto overflow-y-visible space-x-4 p-4 pt-16 scrollbar-hide">
               {tribeCheckins.map((checkin) => (
                 <TribeCheckinCard
                   key={checkin._id}
@@ -583,85 +478,6 @@ const Dashboard: React.FC = () => {
             </Link>
           </motion.div>
         </div>
-
-        {/* Today's Check-ins from Group Members */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="bg-white rounded-2xl border border-secondary-100 shadow-lg hover:shadow-xl transition-all duration-300 p-8">
-
-            <div className="flex items-center space-x-3 mb-6">
-              <Calendar className="w-6 h-6 text-primary-600" />
-              <h3 className="text-2xl font-bold text-secondary-800">Today's Check-ins</h3>
-              <Zap className="w-5 h-5 text-warning-500 animate-bounce-gentle" />
-            </div>
-
-            {recentCheckins.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {recentCheckins.map((checkin) => {
-                  const rating = getAverageRating(checkin);
-                  const colorClass = rating >= 8 ? 'bg-success-600 hover:bg-success-700' :
-                    rating >= 6 ? 'bg-warning-600 hover:bg-warning-700' : 'bg-accent-600 hover:bg-accent-700';
-
-                  return (
-                    <div
-                      key={checkin._id}
-                      className={`${colorClass} rounded-2xl p-5 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover-lift`}>
-
-                      {/* User Info Section */}
-                      <div className="flex items-center space-x-3 mb-4">
-                        {/* Avatar */}
-                        {checkin.user_avatar_url ? (
-                          <img
-                            src={checkin.user_avatar_url}
-                            alt={checkin.user_name || 'User'}
-                            className="w-12 h-12 rounded-full border-2 border-white shadow-md object-cover"
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-full border-2 border-white shadow-md bg-white/30 flex items-center justify-center">
-                            <span className="text-white font-bold text-lg">
-                              {(checkin.user_name || 'A').charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* User Name */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-white truncate drop-shadow-sm">
-                            {checkin.user_name || 'Anonymous'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Mood Emoji - Larger and centered */}
-                      <div className="text-center mb-3">
-                        <div className="text-4xl mb-2">{checkin.mood_emoji}</div>
-                      </div>
-
-                      {/* Rating */}
-                      <div className="text-center">
-                        <div className="text-2xl font-bold mb-1">
-                          {rating}/10
-                        </div>
-                        <div className="text-xs text-white/90 drop-shadow-sm">
-                          wellbeing score
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <Calendar className="w-16 h-16 text-secondary-300 mx-auto mb-4" />
-                <p className="text-secondary-600 text-lg font-medium mb-2">No check-ins yet today</p>
-                <p className="text-secondary-500 text-sm">
-                  Check-ins from your group members will appear here
-                </p>
-              </div>
-            )}
-          </motion.div>
 
         {/* Motivational Quote */}
         <motion.div

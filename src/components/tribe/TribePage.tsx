@@ -80,7 +80,7 @@ const TribePage: React.FC = () => {
           </p>
           <button
             onClick={() => navigate('/groups')}
-            className="px-6 py-3 bg-accent hover:bg-accent-600 text-white rounded-xl font-medium transition-colors"
+            className="px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-medium transition-colors"
           >
             Back to Groups
           </button>

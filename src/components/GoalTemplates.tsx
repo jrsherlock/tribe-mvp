@@ -133,7 +133,7 @@ export const GoalTemplates: React.FC<GoalTemplatesProps> = ({
                         {/* Add Button */}
                         <button
                           onClick={() => handleSelectTemplate(template)}
-                          className="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-accent/10 hover:bg-accent text-primary-800 hover:text-primary-900 rounded-lg text-sm font-medium transition-all group-hover:bg-accent group-hover:text-primary-900"
+                          className="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-accent/10 hover:bg-accent-500 text-primary-800 hover:text-white rounded-lg text-sm font-medium transition-all group-hover:bg-accent-500 group-hover:text-white"
                         >
                           <Plus size={16} />
                           <span>Add Goal</span>

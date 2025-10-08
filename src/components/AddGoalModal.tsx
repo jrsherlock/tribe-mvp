@@ -148,8 +148,8 @@ export const AddGoalModal: React.FC<AddGoalModalProps> = ({
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-primary-200">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-accent rounded-xl flex items-center justify-center">
-                  <Target className="w-5 h-5 text-primary-900" />
+                <div className="w-10 h-10 bg-accent-500 rounded-xl flex items-center justify-center">
+                  <Target className="w-5 h-5 text-white" />
                 </div>
                 <h2 className="text-xl font-bold text-primary-800">Create New Goal</h2>
               </div>

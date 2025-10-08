@@ -308,7 +308,7 @@ const UserProfile: React.FC = () => {
                 {/* Avatar Section */}
                 <div className="text-center space-y-4">
                   <div className="relative inline-block">
-                    <div className="w-32 h-32 rounded-full overflow-hidden bg-accent flex items-center justify-center mx-auto relative">
+                    <div className="w-32 h-32 rounded-full overflow-hidden bg-accent-500 flex items-center justify-center mx-auto relative">
                       {(isEditing ? editForm.avatar_url : profile?.avatar_url) ? (
                         <img
                           src={isEditing ? editForm.avatar_url : profile?.avatar_url}
@@ -509,8 +509,8 @@ const UserProfile: React.FC = () => {
                 transition={{ delay: 0.3 }}
                 className="bg-secondary rounded-3xl p-6 shadow-lg border border-primary-200 text-center"
               >
-                <div className="w-16 h-16 bg-accent rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Award className="w-8 h-8 text-primary-900 drop-shadow-sm" />
+                <div className="w-16 h-16 bg-accent-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Award className="w-8 h-8 text-white drop-shadow-sm" />
                 </div>
                 <div className="text-3xl font-bold text-primary-800 mb-2">{streak}</div>
                 <div className="text-primary-600">Days Sober</div>

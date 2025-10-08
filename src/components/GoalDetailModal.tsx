@@ -206,8 +206,8 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
             <div className="sticky top-0 bg-white border-b border-primary-200 p-6 rounded-t-2xl z-10">
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3 flex-1">
-                  <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Target className="w-6 h-6 text-primary-900" />
+                  <div className="w-12 h-12 bg-accent-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Target className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h2 className="text-2xl font-bold text-primary-800 break-words">{localGoal.title}</h2>

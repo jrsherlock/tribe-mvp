@@ -60,7 +60,7 @@ const GroupProfile: React.FC<GroupProfileProps> = ({ group, isAdmin, onUpdate })
         <div className="flex justify-end">
           <button
             onClick={() => setEditing(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-600 text-white rounded-xl font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-medium transition-colors"
           >
             <Edit3 className="w-4 h-4" />
             Edit Group
@@ -116,7 +116,7 @@ const GroupProfile: React.FC<GroupProfileProps> = ({ group, isAdmin, onUpdate })
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? (
                   <>

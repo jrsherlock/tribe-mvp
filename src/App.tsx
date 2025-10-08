@@ -17,7 +17,7 @@ import GroupsManager from './components/GroupsManager';
 import AcceptInvite from './components/AcceptInvite';
 import TribePage from './components/tribe/TribePage';
 import { useAuth } from './hooks/useAuth';
-import { AuthDebugPanel } from './components/AuthDebugPanel';
+// import { AuthDebugPanel } from './components/AuthDebugPanel';
 import DevModePanel from './components/DevModePanel';
 import { useUserStreaks } from './hooks/useUserStreaks';
 
@@ -47,7 +47,7 @@ function App() {
   return (
     <Router>
       {/* Auth Debug Panel - only visible in development */}
-      <AuthDebugPanel />
+      {/* <AuthDebugPanel /> */}
 
       {/* Dev Mode Panel - diagnostic info for authenticated users */}
       <DevModePanel />
